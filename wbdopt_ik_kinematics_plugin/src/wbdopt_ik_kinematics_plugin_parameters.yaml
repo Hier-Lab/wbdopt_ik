@@ -1,0 +1,75 @@
+wbdopt_ik_kinematics:
+  solver_type:
+    type: string
+    default_value: "qp"
+    description: Solver backend; use qp for differential QP or nlopt for nonlinear SLSQP.
+  tip_frames:
+    type: string_array
+    default_value: []
+    description: Explicit ordered IK tip frames; overrides MoveIt Humble's single inferred tip.
+  epsilon:
+    type: double
+    default_value: 0.00001
+    description: Cartesian convergence tolerance in metres and radians.
+    validation:
+      gt<>: [0.0]
+  regularization:
+    type: double
+    default_value: 0.0001
+    description: Joint-increment damping coefficient.
+    validation:
+      gt_eq<>: [0.0]
+  position_weight:
+    type: double
+    default_value: 1.0
+    description: Translational task weight.
+    validation:
+      gt_eq<>: [0.0]
+  orientation_weight:
+    type: double
+    default_value: 1.0
+    description: Rotational task weight; set to zero for position-only IK.
+    validation:
+      gt_eq<>: [0.0]
+  joint_centering_name:
+    type: string
+    default_value: ""
+    description: Optional active joint to bias toward the midpoint of its position bounds.
+  joint_centering_weight:
+    type: double
+    default_value: 0.0
+    description: Weight of the normalized joint-midpoint objective; zero disables it.
+    validation:
+      gt_eq<>: [0.0]
+  safety_distance:
+    type: double
+    default_value: 0.01
+    description: Minimum distance in metres for SRDF-enabled collision pairs.
+    validation:
+      gt_eq<>: [0.0]
+  collision_activation_distance:
+    type: double
+    default_value: 0.05
+    description: Distance below which collision constraints enter the QP.
+    validation:
+      gt_eq<>: [0.0]
+  max_joint_step:
+    type: double
+    default_value: 0.20
+    description: Maximum joint increment in one SQP iteration.
+    validation:
+      gt<>: [0.0]
+  max_iterations:
+    type: int
+    default_value: 100
+    description: Maximum SQP iterations per random seed.
+    validation:
+      gt<>: [0]
+  nominal_joint_names:
+    type: string_array
+    default_value: []
+    description: Joint names corresponding to nominal_joint_positions.
+  nominal_joint_positions:
+    type: double_array
+    default_value: []
+    description: Nominal joint pose used to rank valid QP solutions from random restarts.

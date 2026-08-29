@@ -1,0 +1,10 @@
+<library path="wbdopt_ik_kinematics_plugin">
+  <class
+    name="wbdopt_ik_kinematics_plugin/WbdoptIkKinematicsPlugin"
+    type="wbdopt_ik_kinematics_plugin::WbdoptIkKinematicsPlugin"
+    base_class_type="kinematics::KinematicsBase">
+    <description>
+      Collision-aware whole-body SQP inverse kinematics with multiple end effectors.
+    </description>
+  </class>
+</library>

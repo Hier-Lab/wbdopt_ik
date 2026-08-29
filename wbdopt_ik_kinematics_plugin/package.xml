@@ -1,0 +1,24 @@
+<?xml version="1.0"?>
+<package format="3">
+  <name>wbdopt_ik_kinematics_plugin</name>
+  <version>0.1.0</version>
+  <description>MoveIt multi-tip kinematics plugin for WbdoptIk.</description>
+  <maintainer email="maintainer@example.com">wbdopt_ik maintainer</maintainer>
+  <license>BSD-3-Clause</license>
+
+  <buildtool_depend>ament_cmake</buildtool_depend>
+  <depend>ament_index_cpp</depend>
+  <depend>class_loader</depend>
+  <depend>generate_parameter_library</depend>
+  <depend>moveit_core</depend>
+  <depend>pluginlib</depend>
+  <depend>rclcpp</depend>
+  <depend>srdfdom</depend>
+  <depend>urdf</depend>
+  <depend>wbdopt_ik_lib</depend>
+
+  <export>
+    <build_type>ament_cmake</build_type>
+    <moveit_core plugin="${prefix}/wbdopt_ik_kinematics_description.xml"/>
+  </export>
+</package>

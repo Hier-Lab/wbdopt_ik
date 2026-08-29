@@ -1,0 +1,16 @@
+<?xml version="1.0"?>
+<package format="3">
+  <name>wbdopt_ik</name>
+  <version>0.1.0</version>
+  <description>Metapackage for the whole-body optimization IK solver and MoveIt plugin.</description>
+  <maintainer email="maintainer@example.com">wbdopt_ik maintainer</maintainer>
+  <license>BSD-3-Clause</license>
+
+  <buildtool_depend>ament_cmake</buildtool_depend>
+  <exec_depend>wbdopt_ik_lib</exec_depend>
+  <exec_depend>wbdopt_ik_kinematics_plugin</exec_depend>
+
+  <export>
+    <build_type>ament_cmake</build_type>
+  </export>
+</package>

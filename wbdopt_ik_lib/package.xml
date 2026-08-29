@@ -1,0 +1,19 @@
+<?xml version="1.0"?>
+<package format="3">
+  <name>wbdopt_ik_lib</name>
+  <version>0.1.0</version>
+  <description>Whole-body multi-end-effector optimization inverse kinematics library.</description>
+  <maintainer email="maintainer@example.com">wbdopt_ik maintainer</maintainer>
+  <license>BSD-3-Clause</license>
+
+  <buildtool_depend>ament_cmake</buildtool_depend>
+  <depend>eigen</depend>
+  <depend>pinocchio</depend>
+  <!-- qpOASES and NLopt are required non-ROS CMake dependencies. Ubuntu
+       Jammy's rosdep database has no keys for them; CMake checks explicitly. -->
+  <test_depend>ament_cmake_gtest</test_depend>
+
+  <export>
+    <build_type>ament_cmake</build_type>
+  </export>
+</package>

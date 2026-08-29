@@ -1,0 +1,29 @@
+# Copy this group entry into the robot's MoveIt kinematics.yaml and replace
+# `whole_body` with the SRDF group name.
+whole_body:
+  kinematics_solver: wbdopt_ik_kinematics_plugin/WbdoptIkKinematicsPlugin
+  kinematics_solver_timeout: 0.05
+  kinematics_solver_search_resolution: 0.005
+  solver_type: qp  # Use nlopt for direct nonlinear SLSQP.
+  tip_frames: [left_fr3_hand_tcp, right_fr3_hand_tcp]
+  epsilon: 0.001
+  regularization: 0.01
+  position_weight: 1.0
+  orientation_weight: 1.0
+  joint_centering_name: base_slider_joint
+  joint_centering_weight: 0.001
+  safety_distance: 0.005
+  collision_activation_distance: 0.10
+  max_joint_step: 0.20
+  max_iterations: 100
+  # Values copied by name from prismatic_fr3_duo_moveit_config/config/initial_positions.yaml.
+  nominal_joint_names: [base_slider_joint,
+    left_fr3_joint1, left_fr3_joint2, left_fr3_joint3, left_fr3_joint4,
+    left_fr3_joint5, left_fr3_joint6, left_fr3_joint7,
+    right_fr3_joint1, right_fr3_joint2, right_fr3_joint3, right_fr3_joint4,
+    right_fr3_joint5, right_fr3_joint6, right_fr3_joint7]
+  nominal_joint_positions: [0.0,
+    0.0, -0.7853981633974483, 0.0, -2.356194490192345,
+    0.0, 1.5707963267948966, 0.7853981633974483,
+    0.0, -0.7853981633974483, 0.0, -2.356194490192345,
+    0.0, 1.5707963267948966, 0.7853981633974483]
