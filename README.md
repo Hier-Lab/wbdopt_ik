@@ -1,32 +1,41 @@
 # wbdopt_ik
 
-`wbdopt_ik` is a ROS 2 whole-body inverse-kinematics solver for robot groups
-with one or more end effectors. It supports a differential-QP backend using
-qpOASES and a direct nonlinear SLSQP backend using NLopt.
+Whole-body inverse kinematics for ROS 2 robot groups with one or more end
+effectors. Built on Pinocchio, with two interchangeable optimization backends:
+a differential QP using qpOASES, and direct nonlinear SLSQP using NLopt.
 
-The repository contains three ament packages:
+Both backends solve for all active joints at once under joint limits and
+self-collision constraints, so a dual-arm group on a mobile base is one
+problem rather than two chained ones.
 
-- `wbdopt_ik_lib`: ROS-independent Pinocchio/qpOASES/NLopt solver library.
-- `wbdopt_ik_kinematics_plugin`: MoveIt `KinematicsBase` plugin, including the
-  multi-pose overload needed by dual-arm groups.
-- `wbdopt_ik`: convenience metapackage.
+## Packages
+
+| Package | Contents |
+|---|---|
+| `wbdopt_ik_lib` | The solver. Pinocchio + qpOASES + NLopt, no ROS dependency. |
+| `wbdopt_ik_kinematics_plugin` | MoveIt `KinematicsBase` plugin, including the multi-pose overload dual-arm groups need. |
+| `wbdopt_ik` | Metapackage. |
+
+## Documentation
+
+- **[docs/ALGORITHM.md](docs/ALGORITHM.md)** — what the solver computes: cost
+  function, collision constraints, both backends, with the math.
+- **[docs/PARAMETERS.md](docs/PARAMETERS.md)** — every YAML parameter, what it
+  does, and how to tune it.
 
 ## Build
 
-Install Pinocchio, qpOASES, NLopt, MoveIt 2, and `generate_parameter_library`, then run
-from the ROS workspace root:
+Requires Pinocchio, qpOASES, NLopt, MoveIt 2, and `generate_parameter_library`.
+Both standard CMake installs and the `/opt/openrobots` robotpkg layout work.
 
 ```bash
 source /opt/ros/$ROS_DISTRO/setup.bash
 colcon build --packages-up-to wbdopt_ik
 ```
 
-The CMake configuration supports normal CMake package installations and the
-`/opt/openrobots` layout used by robotpkg.
+## MoveIt usage
 
-## MoveIt configuration
-
-Use the plugin class in the planning group's `kinematics.yaml`:
+Add the plugin to the planning group in `kinematics.yaml`:
 
 ```yaml
 whole_body:
@@ -35,70 +44,75 @@ whole_body:
   solver_type: qp
   tip_frames: [left_fr3_hand_tcp, right_fr3_hand_tcp]
   epsilon: 0.001
-  regularization: 0.0001
   position_weight: 1.0
   orientation_weight: 1.0
-  joint_centering_name: base_slider_joint
-  joint_centering_weight: 0.1
-  safety_distance: 0.02
+  safety_distance: 0.005
   collision_activation_distance: 0.10
-  max_joint_step: 0.20
-  max_iterations: 100
-  nominal_joint_names: [base_slider_joint,
-    left_fr3_joint1, left_fr3_joint2, left_fr3_joint3, left_fr3_joint4,
-    left_fr3_joint5, left_fr3_joint6, left_fr3_joint7,
-    right_fr3_joint1, right_fr3_joint2, right_fr3_joint3, right_fr3_joint4,
-    right_fr3_joint5, right_fr3_joint6, right_fr3_joint7]
-  nominal_joint_positions: [0.0,
-    0.0, -0.7853981633974483, 0.0, -2.356194490192345,
-    0.0, 1.5707963267948966, 0.7853981633974483,
-    0.0, -0.7853981633974483, 0.0, -2.356194490192345,
-    0.0, 1.5707963267948966, 0.7853981633974483]
 ```
 
-All active joints must currently be one-DoF revolute or prismatic joints (both
-bounded and continuous revolute joints are supported). The
-tip-frame order configured by MoveIt is also the desired-pose order passed to
-the multi-tip IK call. Collision pairs disabled in the SRDF are removed before
-optimization.
+A complete annotated example is in
+[`wbdopt_ik_kinematics_plugin/config/kinematics.yaml`](wbdopt_ik_kinematics_plugin/config/kinematics.yaml);
+every parameter is documented in [docs/PARAMETERS.md](docs/PARAMETERS.md).
 
-`solver_type` selects the optimization backend. The default `qp` backend keeps
-the differential IK loop and solves each local QP with qpOASES. The `nlopt`
-backend uses NLopt SLSQP to optimize the nonlinear Cartesian objective directly
-with joint bounds and enabled self-collision distance constraints. NLopt can
-require a longer `kinematics_solver_timeout`; start with `0.2` seconds for a
-15-joint, two-tip group and tune it for the robot model.
+Three things to get right:
 
-Internally, `WbdoptIk` is a stable facade over an enum-selected solver state.
-`SolverBase` owns the shared model loading, configuration mapping, FK, cost,
-constraint, and convergence procedures. `QpSolver` and `NloptSolver` derive
-from it and implement only their backend solve procedure in separate files.
+- **Set `tip_frames` explicitly on MoveIt Humble.** Its plugin loader otherwise
+  passes only the group's last link, silently reducing a dual-arm group to
+  single-arm IK. The order given here is the order of desired poses.
+- **Disable permanently-colliding link pairs in the SRDF.** If any enabled pair
+  is always in contact, no configuration passes the convergence test and every
+  call fails after using the full timeout.
+- **All active joints must be one-DoF**, revolute or prismatic. Continuous
+  revolute joints are supported and handled as a single angle.
 
-On MoveIt Humble, configure `tip_frames` explicitly because its standard
-kinematics plugin loader otherwise passes only the last link of the group.
+Collision pairs disabled in the SRDF are removed before optimization. Desired
+poses are expressed in the URDF root frame.
 
-The optional joint-centering objective biases one active joint toward the
-midpoint of its configured bounds. Set `joint_centering_weight` to zero (the
-default) or leave `joint_centering_name` empty to disable it. The objective is
-`weight * (q - q_middle)^2 / q_middle^2`; when `q_middle` is zero, as for the
-`base_slider_joint` bounds `[-0.5, 0.5]`, the squared half-range is used as the
-normalizer to avoid division by zero.
+## Choosing a backend
 
-The QP backend continues random restarts until its deadline. Every converged
-solution is retained and sorted by squared joint distance to the configured
-nominal pose; continuous-joint differences use their shortest angular distance.
-The nominal name/value arrays are mapped into the MoveIt group's active-joint
-order during plugin initialization, so their YAML order does not need to match
-the model order. If no nominal pose is configured, the request seed is used as
-the ranking reference.
+`qp` collects every solution found before the deadline and returns the one
+closest to `nominal_joint_positions`, giving repeatable postures on redundant
+arms — at the cost of always consuming the full timeout.
 
-For direct library use, include `<wbdopt_ik/wbdopt_ik.hpp>`, construct
-`wbdopt_ik::WbdoptIk` from URDF/SRDF files or XML, and call `CartToJoint` with a
-seed vector and one `Eigen::Isometry3d` target per configured tip.
+`nlopt` returns as soon as it finds a valid solution, typically in well under a
+millisecond, and enforces collision distances as true nonlinear constraints
+rather than per-iteration linearizations.
 
-Select the direct-library backend before construction:
+Start with `qp` when posture matters, `nlopt` when latency does. See
+[docs/ALGORITHM.md §10](docs/ALGORITHM.md) for the full comparison.
+
+## Library usage
 
 ```cpp
+#include <wbdopt_ik/wbdopt_ik.hpp>
+
 wbdopt_ik::SolverOptions options;
-options.solver = wbdopt_ik::SolverTypes::NLOPT;
+options.solver = wbdopt_ik::SolverTypes::NLOPT;   // or qpOASES
+options.max_time = 0.05;
+options.tolerance = 1e-4;
+
+wbdopt_ik::WbdoptIk solver(
+  urdf_path, srdf_path,
+  {"left_fr3_hand_tcp", "right_fr3_hand_tcp"},    // tips
+  active_joint_names,
+  options);
+
+Eigen::VectorXd solution;
+const int result = solver.CartToJoint(seed, desired_poses, solution);
 ```
+
+`CartToJoint` takes a seed vector and one `Eigen::Isometry3d` per configured
+tip, in the same order. A convenience overload accepts a flat vector of 7
+values per tip (`x, y, z, qx, qy, qz, qw`) or 3 for position-only IK. It
+returns `SUCCESS`, `FAILED`, or `INVALID_INPUT`; on `FAILED` the solution holds
+the closest configuration found.
+
+Construct from URDF/SRDF file paths, or from XML strings with an explicit list
+of disabled collision pairs — the form the MoveIt plugin uses.
+
+## Design
+
+`WbdoptIk` is a stable facade over an enum-selected backend. `SolverBase` owns
+everything shared: model loading, the reduced configuration mapping, FK, cost,
+constraints, and the convergence test. `QpSolver` and `NloptSolver` derive from
+it and implement only `solveInternal`.
