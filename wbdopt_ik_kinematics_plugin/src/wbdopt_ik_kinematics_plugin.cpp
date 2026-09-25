@@ -184,17 +184,14 @@ bool WbdoptIkKinematicsPlugin::initialize(
     solver_options_.max_time = getDefaultTimeout();
 
     std::vector<wbdopt_ik::WbdoptIk::DisabledCollisionPair> disabled_pairs;
-    int dis_pairs = 0;
     if (robot_model.getSRDF())
     {
-      
       for (const auto & pair : robot_model.getSRDF()->getDisabledCollisionPairs())
       {
         disabled_pairs.emplace_back(pair.link1_, pair.link2_);
-        dis_pairs++;
       }
     }
-    std::cout << "Disabled collision pairs: " << dis_pairs << std::endl;
+    disabled_collision_pairs_ = disabled_pairs.size();
     solver_ = std::make_unique<wbdopt_ik::WbdoptIk>(
       exportUrdf(robot_model), effective_tip_frames, joint_names_, disabled_pairs, solver_options_,
       amentPackagePaths());
@@ -232,8 +229,11 @@ bool WbdoptIkKinematicsPlugin::initialize(
 
   active_ = true;
   RCLCPP_INFO(
-    LOGGER, "Initialized WbdoptIk for group '%s' with %zu joints and %zu tips",
-    group_name.c_str(), joint_names_.size(), tip_frames_.size());
+    LOGGER,
+    "Initialized WbdoptIk for group '%s' with %zu joints, %zu tips, "
+    "%zu disabled collision pairs",
+    group_name.c_str(), joint_names_.size(), tip_frames_.size(),
+    disabled_collision_pairs_);
   for (std::size_t i = 0; i < tip_frames_.size(); ++i)
   {
     RCLCPP_INFO(LOGGER, "  IK tip[%zu]: %s", i, tip_frames_[i].c_str());

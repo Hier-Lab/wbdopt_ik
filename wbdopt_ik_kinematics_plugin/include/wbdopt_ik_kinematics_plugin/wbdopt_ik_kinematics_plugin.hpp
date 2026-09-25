@@ -92,6 +92,7 @@ private:
   std::vector<std::string> joint_names_;
   std::vector<std::string> link_names_;
   wbdopt_ik::SolverOptions solver_options_;
+  std::size_t disabled_collision_pairs_{0};
   std::unique_ptr<wbdopt_ik::WbdoptIk> solver_;
   mutable std::mutex solver_mutex_;
 };
