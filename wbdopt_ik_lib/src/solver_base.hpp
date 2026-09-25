@@ -72,6 +72,15 @@ protected:
     Eigen::MatrixXd gradients;
   };
 
+  // A converged solution together with the two keys used to rank it against the
+  // other solutions found from different restarts.
+  struct Candidate
+  {
+    Eigen::VectorXd configuration;
+    double task_error;
+    double nominal_distance;
+  };
+
   void finishInitialization(
     const std::vector<std::string> & end_effector_frames,
     const std::vector<std::string> & requested_joint_names);
@@ -90,6 +99,14 @@ protected:
   bool collisionSafe(const Eigen::VectorXd & active_q);
   bool converged(const Eigen::VectorXd & active_q, const std::vector<Eigen::Isometry3d> & desired);
   Eigen::VectorXd randomConfiguration(std::mt19937 & generator) const;
+
+  // Ranking reference for restart candidates: the configured nominal pose when
+  // one is set, otherwise the request seed.
+  Eigen::VectorXd rankingReference(const Eigen::VectorXd & seed) const;
+  double nominalDistanceSquared(
+    const Eigen::VectorXd & configuration, const Eigen::VectorXd & nominal) const;
+  // Orders candidates by distance to the ranking reference, task error breaking ties.
+  static bool moreNominal(const Candidate & left, const Candidate & right);
 
   virtual int solveInternal(
     const Eigen::VectorXd & seed, const std::vector<Eigen::Isometry3d> & desired,

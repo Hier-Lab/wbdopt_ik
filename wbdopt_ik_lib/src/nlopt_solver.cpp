@@ -299,12 +299,17 @@ int NloptSolver::solveInternal(
 {
   std::random_device random_device;
   std::mt19937 generator(random_device());
-  Eigen::VectorXd best = seed;
-  min_cost_ = std::numeric_limits<double>::infinity();
+  const Eigen::VectorXd nominal = rankingReference(seed);
+  Eigen::VectorXd best_approximation = seed;
+  double best_approximation_error = std::numeric_limits<double>::infinity();
+  std::vector<Candidate> candidates;
   bool first_attempt = true;
-  bool found_solution = false;
 
-  // Retry nonlinear optimization from random configurations until the shared deadline.
+  // Retry nonlinear optimization from random configurations until the shared
+  // deadline, keeping every converged solution. A redundant arm has a continuum
+  // of exact solutions, so returning whichever one an attempt happens to reach
+  // makes successive calls jump between branches; ranking them against the
+  // nominal pose is what makes the output repeatable.
   while (true)
   {
     const double remaining_time = std::chrono::duration<double>(
@@ -323,21 +328,40 @@ int NloptSolver::solveInternal(
     // Reported as pose error alone, so a distant restart is not penalized for its
     // distance from the seed the way the regularized objective would penalize it.
     double pose_error = std::numeric_limits<double>::infinity();
-    if (solveAttempt(initial, seed, desired, remaining_time, candidate, pose_error) &&
-      converged(candidate, desired))
+    if (!solveAttempt(initial, seed, desired, remaining_time, candidate, pose_error))
     {
-      best = candidate;
-      min_cost_ = pose_error;
-      found_solution = true;
-      // A configuration that satisfies both the pose tolerance and the collision
-      // constraints is an answer; continuing to restart only refines a solution
-      // already inside tolerance while spending the rest of the time budget.
-      break;
+      continue;
+    }
+    if (pose_error < best_approximation_error)
+    {
+      best_approximation_error = pose_error;
+      best_approximation = candidate;
+    }
+    if (converged(candidate, desired))
+    {
+      candidates.push_back(
+        Candidate{candidate, pose_error, nominalDistanceSquared(candidate, nominal)});
     }
   }
 
-  solution = best;
-  return found_solution ? SUCCESS : FAILED;
+  if (candidates.empty())
+  {
+    solution = best_approximation;
+    min_cost_ = best_approximation_error;
+    return FAILED;
+  }
+
+  // Prefer the valid solution closest to the ranking reference.
+  const auto selected = std::min_element(
+    candidates.begin(), candidates.end(), &SolverBase::moreNominal);
+  solution = selected->configuration;
+  min_cost_ = selected->task_error;
+#ifdef WBDOPT_IK_DEBUG
+  std::cerr << "WbdoptIk NLopt: candidates=" << candidates.size() <<
+    " selected nominal_distance=" << selected->nominal_distance <<
+    " cost=" << min_cost_ << std::endl;
+#endif
+  return SUCCESS;
 }
 
 }  // namespace wbdopt_ik

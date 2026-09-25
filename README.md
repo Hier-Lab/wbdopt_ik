@@ -70,15 +70,16 @@ poses are expressed in the URDF root frame.
 
 ## Choosing a backend
 
-`qp` collects every solution found before the deadline and returns the one
-closest to `nominal_joint_positions`, giving repeatable postures on redundant
-arms — at the cost of always consuming the full timeout.
+Both backends collect every solution found before the deadline and return the
+one closest to `nominal_joint_positions`, which is what gives repeatable
+postures on redundant arms. Both therefore use the full timeout on every call.
 
-`nlopt` returns as soon as it finds a valid solution, typically in well under a
-millisecond, and enforces collision distances as true nonlinear constraints
-rather than per-iteration linearizations.
+They differ in how they get there: `qp` steps through per-iteration
+linearizations of the task and collision distances, while `nlopt` optimizes the
+absolute configuration under the true nonlinear collision constraints, which is
+more faithful near contact.
 
-Start with `qp` when posture matters, `nlopt` when latency does. See
+Start with `qp`; try `nlopt` if collision avoidance near contact matters. See
 [docs/ALGORITHM.md §10](docs/ALGORITHM.md) for the full comparison.
 
 ## Library usage

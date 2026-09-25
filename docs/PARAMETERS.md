@@ -24,12 +24,14 @@ Must be `wbdopt_ik_kinematics_plugin/WbdoptIkKinematicsPlugin`.
 The wall-clock budget for one IK call, becoming `max_time` in the library. It
 bounds the **entire restart loop**, not one attempt.
 
-The two backends respond differently. `nlopt` returns on its first converged
-solution, so a generous timeout costs nothing on solves that succeed — it is
-only spent when the problem is hard or unreachable. `qp` keeps restarting until
-the deadline to collect candidates for nominal-pose ranking, so it **always
-consumes the full timeout**. Raising this value directly raises `qp` latency
-while improving posture quality.
+**Both backends consume the full timeout on every call.** Each keeps restarting
+until the deadline to collect candidates for nominal-pose ranking, then returns
+the best one. Raising this value directly raises latency while improving posture
+quality and the chance of solving a hard request; lowering it does the reverse.
+
+This is a deliberate trade. Returning the first solution found is far faster
+(sub-millisecond) but makes the output jump between IK branches on a redundant
+arm — nearly identical requests produce visibly different postures.
 
 For an unreachable target, both backends spend the whole budget before
 reporting failure. If IK is called in a planning loop, that cost is paid on
@@ -254,8 +256,8 @@ minimal motion from the current state — usually the right behaviour for
 servoing, but it means consecutive calls from different seeds may land in
 different branches.
 
-The `nlopt` backend ignores these entirely; it returns its first converged
-solution. Use `regularization` to bias it toward the seed instead.
+Both backends use these identically, so switching `solver_type` does not change
+which posture is selected.
 
 ---
 
@@ -289,9 +291,9 @@ whole_body:
   nominal_joint_positions: [0.0, 0.0, -0.785, ...]
 ```
 
-To switch this group to the NLopt backend, set `solver_type: nlopt` and raise
-`regularization` to around `0.01` if you want solutions to stay near the seed.
-The nominal arrays become inert.
+To switch this group to the NLopt backend, set `solver_type: nlopt`. The
+nominal arrays apply unchanged. Raise `regularization` to around `0.01` if you
+additionally want each individual solve pulled toward its seed.
 
 ---
 
@@ -302,7 +304,8 @@ The nominal arrays become inert.
 | Always fails, returns the seed, uses the full timeout | Permanently-colliding link pairs not disabled in the SRDF — see `safety_distance` |
 | Only one arm solves in a dual-arm group | `tip_frames` not set explicitly (MoveIt Humble) |
 | Position tracks, orientation drifts | Raise `orientation_weight`, or check that targets are in the URDF root frame |
-| `qp` always takes the full timeout | Expected: it restarts until the deadline to rank candidates. Use `nlopt` for latency |
+| Solves always take the full timeout | Expected: both backends restart until the deadline to rank candidates. Lower `kinematics_solver_timeout` to trade posture quality for latency |
+| Solutions jump between postures | Set `nominal_joint_positions`, and check the timeout is long enough to find more than one candidate |
 | Erratic large joint motions near full extension | Raise `regularization` (singularity damping) |
 | Passes through thin obstacles between iterations | Lower `max_joint_step`, raise `collision_activation_distance` |
 | Inconsistent postures across calls | Set `nominal_joint_positions` and use `solver_type: qp` |

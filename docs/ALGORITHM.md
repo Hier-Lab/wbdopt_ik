@@ -260,9 +260,12 @@ $$
 
 Because `forced_stop` unwinds without writing back to the caller's vector, the
 converged point must be latched inside the objective — it cannot be recovered
-afterward. The outer restart loop likewise returns on the first accepted
-solution. Together these took a representative 7-DoF solve from 50 ms (the full
-budget, every time) to ~0.13 ms.
+afterward.
+
+This bounds each *attempt*, not the call. The outer loop keeps restarting until
+the deadline (§8), so the effect is that more restarts fit in the budget and
+the ranking has more candidates to choose from, not that the call returns
+sooner.
 
 Constraint rows that cannot be evaluated are reported as large **negative**
 (trivially satisfied), never positive: for an inequality $h \le \epsilon$, a
@@ -317,10 +320,16 @@ sample uniformly within the joint bounds to escape local minima — an IK proble
 on a redundant arm has many disconnected solution branches, and a gradient
 method cannot cross between them.
 
-The two backends then differ: **NLopt returns on the first converged solution**
-(latency first), while **the QP backend collects all of them and returns the
-one nearest the nominal pose** (posture quality first). If you need repeatable
-postures, use the QP backend and set `nominal_joint_positions`.
+Both backends then **collect every converged solution until the deadline and
+return the one nearest the ranking reference** — `nominal_joint_positions` when
+configured, otherwise the seed (§5). This is what makes the output repeatable:
+returning whichever solution an attempt happened to reach first makes nearly
+identical requests land on different branches, and on a redundant arm those
+branches are entire postures apart.
+
+The consequence is that both backends normally consume the full `max_time`.
+Within an attempt the NLopt backend still exits as soon as it is inside
+tolerance, but that only means more restarts fit in the budget.
 
 ---
 
@@ -342,8 +351,8 @@ kinematics work.
 | Variable | increment $\Delta q$ | absolute $q$ |
 | Collision | linearized per iteration | true nonlinear constraint |
 | Regularization | $\lambda$ on the diagonal (step damping) | $\lambda^2$ toward the seed |
-| Returns | best of all restarts, ranked by nominal pose | first converged solution |
-| Strength | posture control, repeatability | latency, constraint fidelity |
+| Returns | best of all restarts, ranked by nominal pose | same |
+| Strength | mature, well-tested path | constraint fidelity near contact |
 
 Start with `qp` when you care about which of many valid solutions you get —
 typically a redundant arm where posture matters. Prefer `nlopt` when you want

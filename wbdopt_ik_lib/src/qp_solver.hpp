@@ -14,14 +14,6 @@ public:
   SolverTypes type() const noexcept override {return SolverTypes::qpOASES;}
 
 private:
-  struct Candidate
-  {
-    Eigen::VectorXd configuration;
-    double task_error;
-    double nominal_distance;
-  };
-  double nominalDistanceSquared(
-    const Eigen::VectorXd & configuration, const Eigen::VectorXd & nominal) const;
   bool solveQp(
     const CostData & cost_data, const ConstraintData & constraint_data,
     Eigen::VectorXd & delta) const;

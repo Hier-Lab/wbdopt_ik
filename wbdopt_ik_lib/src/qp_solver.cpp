@@ -13,22 +13,6 @@
 namespace wbdopt_ik
 {
 
-double QpSolver::nominalDistanceSquared(
-  const Eigen::VectorXd & configuration, const Eigen::VectorXd & nominal) const
-{
-  double distance = 0.0;
-  for (Eigen::Index i = 0; i < configuration.size(); ++i)
-  {
-    double difference = configuration[i] - nominal[i];
-    if (q_dimensions_[static_cast<std::size_t>(i)] == 2)
-    {
-      difference = std::remainder(difference, 2.0 * M_PI);
-    }
-    distance += difference * difference;
-  }
-  return distance;
-}
-
 bool QpSolver::solveQp(
   const CostData & cost_data, const ConstraintData & constraint_data,
   Eigen::VectorXd & delta) const
@@ -136,13 +120,7 @@ int QpSolver::solveInternal(
   std::mt19937 generator(random_device());
   Eigen::VectorXd best_approximation = seed;
   double best_approximation_error = std::numeric_limits<double>::infinity();
-  Eigen::VectorXd nominal = seed;
-  if (!options_.nominal_joint_positions.empty())
-  {
-    nominal = Eigen::Map<const Eigen::VectorXd>(
-      options_.nominal_joint_positions.data(),
-      static_cast<Eigen::Index>(options_.nominal_joint_positions.size()));
-  }
+  const Eigen::VectorXd nominal = rankingReference(seed);
   std::vector<Candidate> candidates;
   bool first_attempt = true;
   std::size_t attempt = 0;
@@ -252,15 +230,7 @@ int QpSolver::solveInternal(
   }
 
   // Prefer the valid IK solution closest to the configured nominal joint pose.
-  std::sort(
-    candidates.begin(), candidates.end(),
-    [](const Candidate & left, const Candidate & right) {
-      if (left.nominal_distance == right.nominal_distance)
-      {
-        return left.task_error < right.task_error;
-      }
-      return left.nominal_distance < right.nominal_distance;
-    });
+  std::sort(candidates.begin(), candidates.end(), &SolverBase::moreNominal);
   solution = candidates.front().configuration;
   min_cost_ = candidates.front().task_error;
 #ifdef WBDOPT_IK_DEBUG

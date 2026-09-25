@@ -625,6 +625,46 @@ bool SolverBase::converged(
   return collisionSafe(active_q);
 }
 
+Eigen::VectorXd SolverBase::rankingReference(const Eigen::VectorXd & seed) const
+{
+  if (options_.nominal_joint_positions.empty())
+  {
+    // Without a configured rest posture, prefer the solution closest to the
+    // request seed, which keeps successive calls temporally coherent.
+    return seed;
+  }
+  return Eigen::Map<const Eigen::VectorXd>(
+    options_.nominal_joint_positions.data(),
+    static_cast<Eigen::Index>(options_.nominal_joint_positions.size()));
+}
+
+double SolverBase::nominalDistanceSquared(
+  const Eigen::VectorXd & configuration, const Eigen::VectorXd & nominal) const
+{
+  double distance = 0.0;
+  for (Eigen::Index i = 0; i < configuration.size(); ++i)
+  {
+    double difference = configuration[i] - nominal[i];
+    if (q_dimensions_[static_cast<std::size_t>(i)] == 2)
+    {
+      // Continuous joints compare by shortest angular distance, so a solution is
+      // not penalized for winding.
+      difference = std::remainder(difference, 2.0 * M_PI);
+    }
+    distance += difference * difference;
+  }
+  return distance;
+}
+
+bool SolverBase::moreNominal(const Candidate & left, const Candidate & right)
+{
+  if (left.nominal_distance == right.nominal_distance)
+  {
+    return left.task_error < right.task_error;
+  }
+  return left.nominal_distance < right.nominal_distance;
+}
+
 Eigen::VectorXd SolverBase::randomConfiguration(std::mt19937 & generator) const
 {
   Eigen::VectorXd result(static_cast<Eigen::Index>(joint_names_.size()));
