@@ -45,7 +45,30 @@ struct SolverOptions
   double collision_activation_distance{0.10};
   double max_joint_step{0.20};
   int max_iterations{100};
+  bool random_restarts{true};
   std::vector<double> nominal_joint_positions;
+};
+
+enum class CollisionPrimitiveType
+{
+  SPHERE,
+  CAPSULE,
+  CYLINDER,
+  BOX,
+  CONE,
+  ELLIPSOID,
+};
+
+/** A collision primitive expressed in its owning link frame. */
+struct CollisionPrimitive
+{
+  std::string name;
+  std::string link_name;
+  CollisionPrimitiveType type{CollisionPrimitiveType::SPHERE};
+  // sphere: [radius, 0, 0]; capsule/cylinder/cone: [radius, length, 0];
+  // box: [x, y, z]; ellipsoid: [rx, ry, rz].
+  Eigen::Vector3d dimensions{Eigen::Vector3d::Zero()};
+  Eigen::Isometry3d link_from_primitive{Eigen::Isometry3d::Identity()};
 };
 
 struct CostData
@@ -90,14 +113,16 @@ public:
     const std::vector<std::string> & end_effector_frames = {},
     const std::vector<std::string> & active_joint_names = {},
     const SolverOptions & options = SolverOptions(), ModelInput input = ModelInput::FILES,
-    const std::vector<std::string> & package_paths = {});
+    const std::vector<std::string> & package_paths = {},
+    const std::vector<CollisionPrimitive> & collision_primitives = {});
 
   WbdoptIk(
     const std::string & urdf_xml, const std::vector<std::string> & end_effector_frames,
     const std::vector<std::string> & active_joint_names,
     const std::vector<DisabledCollisionPair> & disabled_collision_pairs,
     const SolverOptions & options = SolverOptions(),
-    const std::vector<std::string> & package_paths = {});
+    const std::vector<std::string> & package_paths = {},
+    const std::vector<CollisionPrimitive> & collision_primitives = {});
 
   ~WbdoptIk();
   WbdoptIk(WbdoptIk &&) noexcept;

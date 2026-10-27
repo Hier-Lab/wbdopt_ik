@@ -1,0 +1,37 @@
+# Smooth, conservative self-collision approximation for the dual FR3 setup.
+# Dimensions for links 1-7 follow franka_description's self-collision capsule
+# definitions without their extra safety_distance; Wbdopt adds its configured
+# safety_distance separately. Link-0 and hand housings use conservative spheres.
+primitives:
+  - {name: left_link0_sphere, link: left_fr3_link0, type: sphere, radius: 0.10, xyz: [0.0, 0.0, 0.06]}
+  - {name: left_link1_capsule, link: left_fr3_link1, type: capsule, radius: 0.06, length: 0.283, xyz: [0.0, 0.0, -0.1915]}
+  - {name: left_link2_capsule, link: left_fr3_link2, type: capsule, radius: 0.06, length: 0.12, xyz: [0.0, 0.0, 0.0]}
+  - {name: left_link3_capsule, link: left_fr3_link3, type: capsule, radius: 0.06, length: 0.15, xyz: [0.0, 0.0, -0.145]}
+  - {name: left_link4_capsule, link: left_fr3_link4, type: capsule, radius: 0.06, length: 0.12, xyz: [0.0, 0.0, 0.0]}
+  - {name: left_link5_main_capsule, link: left_fr3_link5, type: capsule, radius: 0.06, length: 0.10, xyz: [0.0, 0.0, -0.26]}
+  - {name: left_link5_offset_capsule, link: left_fr3_link5, type: capsule, radius: 0.025, length: 0.14, xyz: [0.0, 0.08, -0.13]}
+  - {name: left_link6_capsule, link: left_fr3_link6, type: capsule, radius: 0.05, length: 0.08, xyz: [0.0, 0.0, -0.03]}
+  - {name: left_link7_capsule, link: left_fr3_link7, type: capsule, radius: 0.04, length: 0.14, xyz: [0.0, 0.0, 0.01]}
+  - {name: left_hand_sphere, link: left_fr3_hand, type: sphere, radius: 0.10, xyz: [0.0, 0.0, 0.07]}
+
+  # Camera assembly and soft gripper geometry mirror their URDF collision boxes.
+  - {name: left_camera_mount_box, link: left_camera_mount, type: box, size: [0.1178, 0.060, 0.0641], xyz: [-0.0739, 0.0, 0.0245]}
+  - {name: left_d405_box, link: left_d405, type: box, size: [0.042, 0.042, 0.023], xyz: [-0.01, 0.0, 0.0115]}
+  - {name: left_left_soft_finger_box, link: left_fr3_leftfinger_soft_finger, type: box, size: [0.040, 0.040, 0.1234], xyz: [0.0, 0.020, 0.0882134]}
+  - {name: left_right_soft_finger_box, link: left_fr3_rightfinger_soft_finger, type: box, size: [0.040, 0.040, 0.1234], xyz: [0.0, 0.020, 0.0882134]}
+
+  - {name: right_link0_sphere, link: right_fr3_link0, type: sphere, radius: 0.10, xyz: [0.0, 0.0, 0.06]}
+  - {name: right_link1_capsule, link: right_fr3_link1, type: capsule, radius: 0.06, length: 0.283, xyz: [0.0, 0.0, -0.1915]}
+  - {name: right_link2_capsule, link: right_fr3_link2, type: capsule, radius: 0.06, length: 0.12, xyz: [0.0, 0.0, 0.0]}
+  - {name: right_link3_capsule, link: right_fr3_link3, type: capsule, radius: 0.06, length: 0.15, xyz: [0.0, 0.0, -0.145]}
+  - {name: right_link4_capsule, link: right_fr3_link4, type: capsule, radius: 0.06, length: 0.12, xyz: [0.0, 0.0, 0.0]}
+  - {name: right_link5_main_capsule, link: right_fr3_link5, type: capsule, radius: 0.06, length: 0.10, xyz: [0.0, 0.0, -0.26]}
+  - {name: right_link5_offset_capsule, link: right_fr3_link5, type: capsule, radius: 0.025, length: 0.14, xyz: [0.0, 0.08, -0.13]}
+  - {name: right_link6_capsule, link: right_fr3_link6, type: capsule, radius: 0.05, length: 0.08, xyz: [0.0, 0.0, -0.03]}
+  - {name: right_link7_capsule, link: right_fr3_link7, type: capsule, radius: 0.04, length: 0.14, xyz: [0.0, 0.0, 0.01]}
+  - {name: right_hand_sphere, link: right_fr3_hand, type: sphere, radius: 0.10, xyz: [0.0, 0.0, 0.07]}
+
+  - {name: right_camera_mount_box, link: right_camera_mount, type: box, size: [0.1178, 0.060, 0.0641], xyz: [-0.0739, 0.0, 0.0245]}
+  - {name: right_d405_box, link: right_d405, type: box, size: [0.042, 0.042, 0.023], xyz: [-0.01, 0.0, 0.0115]}
+  - {name: right_left_soft_finger_box, link: right_fr3_leftfinger_soft_finger, type: box, size: [0.040, 0.040, 0.1234], xyz: [0.0, 0.020, 0.0882134]}
+  - {name: right_right_soft_finger_box, link: right_fr3_rightfinger_soft_finger, type: box, size: [0.040, 0.040, 0.1234], xyz: [0.0, 0.020, 0.0882134]}

@@ -109,6 +109,20 @@ problems and keeps $H$ positive semidefinite.
 
 ## 4. Collision model
 
+The Pinocchio collision model is independent of the URDF/MoveIt collision
+model. At construction, the solver creates only the link-relative shapes in
+`collision_primitives_file`; it never loads URDF STL collision geometry. Links
+absent from that whitelist produce no IK collision object. Supported Coal
+primitives are spheres, capsules, cylinders, boxes, cones, and ellipsoids.
+Axial shapes are aligned with local +Z before their configured link-relative
+RPY rotation. A capsule with radius $r$ and centreline length $l$ has total
+axial extent $l + 2r$. SRDF-disabled link pairs are then removed from the pair
+set.
+
+This separation keeps distance gradients smooth and inexpensive. Safety with
+respect to the real robot requires every configured primitive (or group of
+primitives) to conservatively enclose the corresponding real collision geometry.
+
 Both backends share one signed-distance constraint. For pair $(a,b)$ with
 minimum distance $d_{ab}(q)$ and safety margin $\epsilon_s$ (`safety_distance`):
 
@@ -320,16 +334,15 @@ sample uniformly within the joint bounds to escape local minima — an IK proble
 on a redundant arm has many disconnected solution branches, and a gradient
 method cannot cross between them.
 
-Both backends then **collect every converged solution until the deadline and
-return the one nearest the ranking reference** — `nominal_joint_positions` when
-configured, otherwise the seed (§5). This is what makes the output repeatable:
-returning whichever solution an attempt happened to reach first makes nearly
-identical requests land on different branches, and on a redundant arm those
-branches are entire postures apart.
+With `random_restarts` enabled, both backends **collect every converged solution
+until the deadline and return the one nearest the ranking reference** —
+`nominal_joint_positions` when configured, otherwise the seed (§5). This makes
+offline multi-start output repeatable, but normally consumes the full `max_time`.
 
-The consequence is that both backends normally consume the full `max_time`.
-Within an attempt the NLopt backend still exits as soon as it is inside
-tolerance, but that only means more restarts fit in the budget.
+With `random_restarts` disabled, only the caller's seed branch is attempted and
+the result returns immediately after that attempt. This mode is intended for
+RViz markers and repeated local IK, where the preceding state is already the
+best seed and temporal continuity matters more than global posture ranking.
 
 ---
 
@@ -351,7 +364,7 @@ kinematics work.
 | Variable | increment $\Delta q$ | absolute $q$ |
 | Collision | linearized per iteration | true nonlinear constraint |
 | Regularization | $\lambda$ on the diagonal (step damping) | $\lambda^2$ toward the seed |
-| Returns | best of all restarts, ranked by nominal pose | same |
+| Returns | seed-local solution, or best ranked restart when enabled | same |
 | Strength | mature, well-tested path | constraint fidelity near contact |
 
 Start with `qp` when you care about which of many valid solutions you get —

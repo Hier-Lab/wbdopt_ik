@@ -330,6 +330,10 @@ int NloptSolver::solveInternal(
     double pose_error = std::numeric_limits<double>::infinity();
     if (!solveAttempt(initial, seed, desired, remaining_time, candidate, pose_error))
     {
+      if (!options_.random_restarts)
+      {
+        break;
+      }
       continue;
     }
     if (pose_error < best_approximation_error)
@@ -341,6 +345,11 @@ int NloptSolver::solveInternal(
     {
       candidates.push_back(
         Candidate{candidate, pose_error, nominalDistanceSquared(candidate, nominal)});
+    }
+    // Interactive IK can stop after the seed-local attempt for low latency and continuity.
+    if (!options_.random_restarts)
+    {
+      break;
     }
   }
 

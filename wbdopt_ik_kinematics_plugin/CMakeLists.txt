@@ -15,6 +15,7 @@ find_package(rclcpp REQUIRED)
 find_package(srdfdom REQUIRED)
 find_package(urdf REQUIRED)
 find_package(wbdopt_ik_lib REQUIRED)
+find_package(yaml_cpp_vendor REQUIRED)
 
 generate_parameter_library(
   ${PROJECT_NAME}_parameters
@@ -37,7 +38,8 @@ target_link_libraries(${PROJECT_NAME}
     rclcpp::rclcpp
     srdfdom::srdfdom
     urdf::urdf
-    wbdopt_ik_lib::wbdopt_ik)
+    wbdopt_ik_lib::wbdopt_ik
+    yaml-cpp)
 
 pluginlib_export_plugin_description_file(
   moveit_core wbdopt_ik_kinematics_description.xml)
@@ -56,5 +58,5 @@ install(
 ament_export_targets(export_${PROJECT_NAME} HAS_LIBRARY_TARGET)
 ament_export_dependencies(
   ament_index_cpp class_loader generate_parameter_library moveit_core pluginlib rclcpp
-  srdfdom urdf wbdopt_ik_lib)
+  srdfdom urdf wbdopt_ik_lib yaml_cpp_vendor)
 ament_package()

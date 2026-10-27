@@ -6,6 +6,8 @@ whole_body:
   kinematics_solver_search_resolution: 0.005
   solver_type: qp  # Use nlopt for direct nonlinear SLSQP.
   tip_frames: [left_fr3_hand_tcp, right_fr3_hand_tcp]
+  # Only links listed in this file participate in Wbdopt IK collision checks.
+  collision_primitives_file: package://wbdopt_ik_kinematics_plugin/config/dual_fr3_collision_primitives.yaml
   epsilon: 0.001
   regularization: 0.01
   position_weight: 1.0
@@ -16,6 +18,7 @@ whole_body:
   collision_activation_distance: 0.10
   max_joint_step: 0.20
   max_iterations: 100
+  random_restarts: false  # Return the seed-local solution promptly for interactive MoveIt IK.
   # Values copied by name from prismatic_fr3_duo_moveit_config/config/initial_positions.yaml.
   nominal_joint_names: [base_slider_joint,
     left_fr3_joint1, left_fr3_joint2, left_fr3_joint3, left_fr3_joint4,

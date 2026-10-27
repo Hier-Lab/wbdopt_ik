@@ -1,0 +1,25 @@
+# Independent Pinocchio geometry used only by Wbdopt IK. MoveIt/ROS continues
+# to use URDF/SRDF collision geometry. Unlisted links are ignored by IK.
+# All poses are relative to `link`; axial primitives point along local +Z.
+# primitives:
+#   - name: upper_arm_capsule
+#     link: robot_link3
+#     type: capsule
+#     radius: 0.08
+#     length: 0.24       # centerline; total extent adds 2 * radius
+#     xyz: [0.0, 0.0, 0.12]
+#     rpy: [0.0, 0.0, 0.0]
+#   - name: wrist_sphere
+#     link: robot_link7
+#     type: sphere
+#     radius: 0.07
+#     xyz: [0.0, 0.0, 0.0]
+#   - name: base_box
+#     link: robot_link0
+#     type: box
+#     size: [0.3, 0.3, 0.2]
+#   - name: housing_ellipsoid
+#     link: robot_link1
+#     type: ellipsoid
+#     radii: [0.08, 0.07, 0.10]
+primitives: []

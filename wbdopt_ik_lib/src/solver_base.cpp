@@ -15,7 +15,6 @@
 #include <algorithm>
 #include <cmath>
 #include <limits>
-#include <sstream>
 #include <stdexcept>
 #include <unordered_set>
 
@@ -40,29 +39,6 @@ std::string canonicalPair(const std::string & first, const std::string & second)
   return first < second ? first + "\n" + second : second + "\n" + first;
 }
 
-std::size_t replaceCylindersWithCapsules(pinocchio::GeometryModel & geometry_model)
-{
-  std::size_t replacement_count = 0;
-  for (auto & geometry_object : geometry_model.geometryObjects)
-  {
-    const auto cylinder = std::dynamic_pointer_cast<coal::Cylinder>(geometry_object.geometry);
-    if (!cylinder)
-    {
-      continue;
-    }
-
-    // Preserve the cylinder's radius and total axial extent after rounding its ends.
-    const double capsule_length = std::max(
-      0.0, 2.0 * (cylinder->halfLength - cylinder->radius));
-    auto capsule = std::make_shared<coal::Capsule>(cylinder->radius, capsule_length);
-    capsule->setSweptSphereRadius(cylinder->getSweptSphereRadius());
-    capsule->computeLocalAABB();
-    geometry_object.geometry = std::move(capsule);
-    ++replacement_count;
-  }
-  return replacement_count;
-}
-
 bool isValidDesiredPose(const Eigen::Isometry3d & pose)
 {
   if (!pose.matrix().allFinite())
@@ -74,35 +50,149 @@ bool isValidDesiredPose(const Eigen::Isometry3d & pose)
     std::abs(rotation.determinant() - 1.0) < 1e-6;
 }
 
+bool validPrimitiveDimensions(const CollisionPrimitive & definition)
+{
+  if (!definition.dimensions.allFinite())
+  {
+    return false;
+  }
+  switch (definition.type)
+  {
+    case CollisionPrimitiveType::SPHERE:
+      return definition.dimensions.x() > 0.0;
+    case CollisionPrimitiveType::CAPSULE:
+      return definition.dimensions.x() > 0.0 && definition.dimensions.y() >= 0.0;
+    case CollisionPrimitiveType::CYLINDER:
+    case CollisionPrimitiveType::CONE:
+      return definition.dimensions.x() > 0.0 && definition.dimensions.y() > 0.0;
+    case CollisionPrimitiveType::BOX:
+    case CollisionPrimitiveType::ELLIPSOID:
+      return (definition.dimensions.array() > 0.0).all();
+  }
+  return false;
+}
+
+std::shared_ptr<coal::CollisionGeometry> makeCollisionGeometry(
+  const CollisionPrimitive & definition)
+{
+  switch (definition.type)
+  {
+    case CollisionPrimitiveType::SPHERE:
+      return std::make_shared<coal::Sphere>(definition.dimensions.x());
+    case CollisionPrimitiveType::CAPSULE:
+      return std::make_shared<coal::Capsule>(
+        definition.dimensions.x(), definition.dimensions.y());
+    case CollisionPrimitiveType::CYLINDER:
+      return std::make_shared<coal::Cylinder>(
+        definition.dimensions.x(), definition.dimensions.y());
+    case CollisionPrimitiveType::BOX:
+      return std::make_shared<coal::Box>(definition.dimensions);
+    case CollisionPrimitiveType::CONE:
+      return std::make_shared<coal::Cone>(definition.dimensions.x(), definition.dimensions.y());
+    case CollisionPrimitiveType::ELLIPSOID:
+      return std::make_shared<coal::Ellipsoid>(definition.dimensions);
+  }
+  throw std::invalid_argument("Unknown collision primitive type");
+}
+
+void buildPrimitiveGeometryModel(
+  const pinocchio::Model & model, const std::vector<CollisionPrimitive> & definitions,
+  pinocchio::GeometryModel & geometry_model)
+{
+  std::unordered_set<std::string> names;
+  for (std::size_t index = 0; index < definitions.size(); ++index)
+  {
+    const CollisionPrimitive & definition = definitions[index];
+    if (definition.link_name.empty() || !validPrimitiveDimensions(definition) ||
+      !isValidDesiredPose(definition.link_from_primitive))
+    {
+      throw std::invalid_argument("Invalid collision primitive definition");
+    }
+
+    const pinocchio::FrameIndex frame_id = model.getFrameId(definition.link_name);
+    if (frame_id == model.frames.size())
+    {
+      throw std::invalid_argument("Unknown collision primitive link: " + definition.link_name);
+    }
+
+    const std::string name = definition.name.empty() ?
+      definition.link_name + "_primitive_" + std::to_string(index) : definition.name;
+    if (!names.insert(name).second)
+    {
+      throw std::invalid_argument("Duplicate collision primitive name: " + name);
+    }
+
+    // Pinocchio stores geometry placement in the parent-joint frame. Configured
+    // primitive poses are link-relative, so prepend the owning link placement.
+    const pinocchio::SE3 link_from_primitive(
+      definition.link_from_primitive.linear(), definition.link_from_primitive.translation());
+    const pinocchio::SE3 joint_from_primitive =
+      model.frames[frame_id].placement * link_from_primitive;
+    auto geometry = makeCollisionGeometry(definition);
+    geometry->computeLocalAABB();
+    geometry_model.addGeometryObject(pinocchio::GeometryObject(
+      name, model.frames[frame_id].parentJoint, frame_id, joint_from_primitive, geometry));
+  }
+  geometry_model.addAllCollisionPairs();
+}
+
+void removeDisabledPairs(
+  const pinocchio::Model & model,
+  const std::vector<WbdoptIk::DisabledCollisionPair> & disabled_collision_pairs,
+  pinocchio::GeometryModel & geometry_model)
+{
+  std::unordered_set<std::string> disabled;
+  for (const auto & pair : disabled_collision_pairs)
+  {
+    disabled.insert(canonicalPair(pair.first, pair.second));
+  }
+  std::vector<pinocchio::CollisionPair> pairs_to_remove;
+  for (const auto & pair : geometry_model.collisionPairs)
+  {
+    const auto & object_a = geometry_model.geometryObjects[pair.first];
+    const auto & object_b = geometry_model.geometryObjects[pair.second];
+    const std::string & link_a = model.frames[object_a.parentFrame].name;
+    const std::string & link_b = model.frames[object_b.parentFrame].name;
+    if (disabled.count(canonicalPair(link_a, link_b)) != 0U)
+    {
+      pairs_to_remove.push_back(pair);
+    }
+  }
+  for (const auto & pair : pairs_to_remove)
+  {
+    geometry_model.removeCollisionPair(pair);
+  }
+}
+
 }  // namespace
 
 SolverBase::SolverBase(
   const std::string & urdf, const std::string & srdf,
   const std::vector<std::string> & end_effector_frames,
   const std::vector<std::string> & active_joint_names, const SolverOptions & options,
-  ModelInput input, const std::vector<std::string> & package_paths)
+  ModelInput input, const std::vector<std::string> & package_paths,
+  const std::vector<CollisionPrimitive> & collision_primitives)
 : options_(options)
 {
-  // Load both kinematic and collision models from files or serialized XML.
+  // Load only kinematics from URDF; IK collision geometry comes exclusively
+  // from the independent primitive whitelist.
   if (input == ModelInput::FILES)
   {
     pinocchio::urdf::buildModel(urdf, model_);
-    pinocchio::urdf::buildGeom(
-      model_, urdf, pinocchio::COLLISION, geometry_model_, package_paths);
-    geometry_model_.addAllCollisionPairs();
-    if (!srdf.empty())
-    {
-      pinocchio::srdf::removeCollisionPairs(model_, geometry_model_, srdf, false);
-    }
   }
   else
   {
     pinocchio::urdf::buildModelFromXML(urdf, model_);
-    std::istringstream urdf_stream(urdf);
-    pinocchio::urdf::buildGeom(
-      model_, urdf_stream, pinocchio::COLLISION, geometry_model_, package_paths);
-    geometry_model_.addAllCollisionPairs();
-    if (!srdf.empty())
+  }
+  (void)package_paths;
+  buildPrimitiveGeometryModel(model_, collision_primitives, geometry_model_);
+  if (!srdf.empty())
+  {
+    if (input == ModelInput::FILES)
+    {
+      pinocchio::srdf::removeCollisionPairs(model_, geometry_model_, srdf, false);
+    }
+    else
     {
       pinocchio::srdf::removeCollisionPairsFromXML(model_, geometry_model_, srdf, false);
     }
@@ -114,37 +204,16 @@ SolverBase::SolverBase(
   const std::string & urdf_xml, const std::vector<std::string> & end_effector_frames,
   const std::vector<std::string> & active_joint_names,
   const std::vector<DisabledCollisionPair> & disabled_collision_pairs,
-  const SolverOptions & options, const std::vector<std::string> & package_paths)
+  const SolverOptions & options, const std::vector<std::string> & package_paths,
+  const std::vector<CollisionPrimitive> & collision_primitives)
 : options_(options)
 {
-  // MoveIt supplies URDF XML plus its already-resolved disabled collision pairs.
+  // MoveIt supplies URDF kinematics and its already-resolved disabled pairs;
+  // STL collision geometry is intentionally not loaded into this model.
   pinocchio::urdf::buildModelFromXML(urdf_xml, model_);
-  std::istringstream urdf_stream(urdf_xml);
-  pinocchio::urdf::buildGeom(
-    model_, urdf_stream, pinocchio::COLLISION, geometry_model_, package_paths);
-  geometry_model_.addAllCollisionPairs();
-
-  std::unordered_set<std::string> disabled;
-  for (const auto & pair : disabled_collision_pairs)
-  {
-    disabled.insert(canonicalPair(pair.first, pair.second));
-  }
-  std::vector<pinocchio::CollisionPair> pairs_to_remove;
-  for (const auto & pair : geometry_model_.collisionPairs)
-  {
-    const auto & object_a = geometry_model_.geometryObjects[pair.first];
-    const auto & object_b = geometry_model_.geometryObjects[pair.second];
-    const std::string & link_a = model_.frames[object_a.parentFrame].name;
-    const std::string & link_b = model_.frames[object_b.parentFrame].name;
-    if (disabled.count(canonicalPair(link_a, link_b)) != 0U)
-    {
-      pairs_to_remove.push_back(pair);
-    }
-  }
-  for (const auto & pair : pairs_to_remove)
-  {
-    geometry_model_.removeCollisionPair(pair);
-  }
+  (void)package_paths;
+  buildPrimitiveGeometryModel(model_, collision_primitives, geometry_model_);
+  removeDisabledPairs(model_, disabled_collision_pairs, geometry_model_);
   finishInitialization(end_effector_frames, active_joint_names);
 }
 
@@ -152,10 +221,6 @@ void SolverBase::finishInitialization(
   const std::vector<std::string> & end_effector_frames,
   const std::vector<std::string> & requested_joint_names)
 {
-  // Replace sharp-ended cylinders before GeometryData caches their shape information.
-  [[maybe_unused]] const std::size_t replaced_cylinders =
-    replaceCylindersWithCapsules(geometry_model_);
-
   // Allocate reusable Pinocchio data and enable signed collision distances.
   data_ = std::make_unique<pinocchio::Data>(model_);
   geometry_data_ = std::make_unique<pinocchio::GeometryData>(geometry_model_);
@@ -221,8 +286,9 @@ void SolverBase::finishInitialization(
     " active_joints=" << joint_names_.size() <<
     " q_indices=" << q_indices_.size() <<
     " v_indices_" << v_indices_.size() <<
+    " collision_primitives=" << geometry_model_.geometryObjects.size() <<
     " collision_pairs=" << geometry_model_.collisionPairs.size() <<
-    " cylinders_replaced=" << replaced_cylinders << std::endl;
+    std::endl;
 #endif
 }
 

@@ -37,9 +37,11 @@ WbdoptIk::WbdoptIk(
   const std::string & urdf, const std::string & srdf,
   const std::vector<std::string> & end_effector_frames,
   const std::vector<std::string> & active_joint_names, const SolverOptions & options,
-  ModelInput input, const std::vector<std::string> & package_paths)
+  ModelInput input, const std::vector<std::string> & package_paths,
+  const std::vector<CollisionPrimitive> & collision_primitives)
 : solver_(makeSolver(
-      urdf, srdf, end_effector_frames, active_joint_names, options, input, package_paths))
+      urdf, srdf, end_effector_frames, active_joint_names, options, input, package_paths,
+      collision_primitives))
 {
 }
 
@@ -47,10 +49,11 @@ WbdoptIk::WbdoptIk(
   const std::string & urdf_xml, const std::vector<std::string> & end_effector_frames,
   const std::vector<std::string> & active_joint_names,
   const std::vector<DisabledCollisionPair> & disabled_collision_pairs,
-  const SolverOptions & options, const std::vector<std::string> & package_paths)
+  const SolverOptions & options, const std::vector<std::string> & package_paths,
+  const std::vector<CollisionPrimitive> & collision_primitives)
 : solver_(makeSolver(
       urdf_xml, end_effector_frames, active_joint_names, disabled_collision_pairs, options,
-      package_paths))
+      package_paths, collision_primitives))
 {
 }
 

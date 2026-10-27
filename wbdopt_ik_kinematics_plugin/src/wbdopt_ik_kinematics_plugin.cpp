@@ -1,6 +1,7 @@
 #include <wbdopt_ik_kinematics_plugin/wbdopt_ik_kinematics_plugin.hpp>
 
 #include <ament_index_cpp/get_resources.hpp>
+#include <ament_index_cpp/get_package_share_directory.hpp>
 #include <class_loader/class_loader.hpp>
 #include <moveit/robot_state/robot_state.h>
 #include <pluginlib/class_list_macros.hpp>
@@ -8,6 +9,7 @@
 #include <tinyxml.h>
 #include <urdf_parser/urdf_parser.h>
 #include <wbdopt_ik_kinematics_plugin/wbdopt_ik_kinematics_plugin_parameters.hpp>
+#include <yaml-cpp/yaml.h>
 
 #include <Eigen/Geometry>
 
@@ -23,6 +25,139 @@ namespace
 {
 
 const rclcpp::Logger LOGGER = rclcpp::get_logger("wbdopt_ik_kinematics_plugin");
+
+std::string resolveConfigPath(const std::string & configured_path)
+{
+  constexpr char package_prefix[] = "package://";
+  if (configured_path.rfind(package_prefix, 0) != 0)
+  {
+    return configured_path;
+  }
+
+  const std::string package_path = configured_path.substr(sizeof(package_prefix) - 1U);
+  const std::size_t separator = package_path.find('/');
+  if (separator == std::string::npos || separator == 0U || separator + 1U >= package_path.size())
+  {
+    throw std::runtime_error("Invalid package URI for collision primitive YAML: " + configured_path);
+  }
+  return ament_index_cpp::get_package_share_directory(package_path.substr(0, separator)) + "/" +
+    package_path.substr(separator + 1U);
+}
+
+Eigen::Vector3d readVector3(
+  const YAML::Node & entry, const char * field, const Eigen::Vector3d & default_value)
+{
+  const YAML::Node value = entry[field];
+  if (!value)
+  {
+    return default_value;
+  }
+  if (!value.IsSequence() || value.size() != 3U)
+  {
+    throw std::runtime_error(std::string("Primitive field '") + field + "' must have 3 values");
+  }
+  Eigen::Vector3d result(value[0].as<double>(), value[1].as<double>(), value[2].as<double>());
+  if (!result.allFinite())
+  {
+    throw std::runtime_error(std::string("Primitive field '") + field + "' must be finite");
+  }
+  return result;
+}
+
+double readScalar(const YAML::Node & entry, const char * field)
+{
+  const YAML::Node value = entry[field];
+  if (!value)
+  {
+    throw std::runtime_error(std::string("Primitive requires field '") + field + "'");
+  }
+  const double result = value.as<double>();
+  if (!std::isfinite(result))
+  {
+    throw std::runtime_error(std::string("Primitive field '") + field + "' must be finite");
+  }
+  return result;
+}
+
+wbdopt_ik::CollisionPrimitiveType primitiveTypeFromString(const std::string & type)
+{
+  if (type == "sphere") {return wbdopt_ik::CollisionPrimitiveType::SPHERE;}
+  if (type == "capsule") {return wbdopt_ik::CollisionPrimitiveType::CAPSULE;}
+  if (type == "cylinder") {return wbdopt_ik::CollisionPrimitiveType::CYLINDER;}
+  if (type == "box") {return wbdopt_ik::CollisionPrimitiveType::BOX;}
+  if (type == "cone") {return wbdopt_ik::CollisionPrimitiveType::CONE;}
+  if (type == "ellipsoid") {return wbdopt_ik::CollisionPrimitiveType::ELLIPSOID;}
+  throw std::runtime_error("Unknown collision primitive type: " + type);
+}
+
+Eigen::Vector3d primitiveDimensions(
+  const YAML::Node & entry, wbdopt_ik::CollisionPrimitiveType type)
+{
+  switch (type)
+  {
+    case wbdopt_ik::CollisionPrimitiveType::SPHERE:
+      return Eigen::Vector3d(readScalar(entry, "radius"), 0.0, 0.0);
+    case wbdopt_ik::CollisionPrimitiveType::CAPSULE:
+    case wbdopt_ik::CollisionPrimitiveType::CYLINDER:
+    case wbdopt_ik::CollisionPrimitiveType::CONE:
+      return Eigen::Vector3d(
+        readScalar(entry, "radius"), readScalar(entry, "length"), 0.0);
+    case wbdopt_ik::CollisionPrimitiveType::BOX:
+      return readVector3(entry, "size", Eigen::Vector3d::Zero());
+    case wbdopt_ik::CollisionPrimitiveType::ELLIPSOID:
+      return readVector3(entry, "radii", Eigen::Vector3d::Zero());
+  }
+  throw std::runtime_error("Unknown collision primitive type");
+}
+
+std::vector<wbdopt_ik::CollisionPrimitive> loadCollisionPrimitives(
+  const std::string & configured_path)
+{
+  if (configured_path.empty())
+  {
+    return {};
+  }
+
+  const std::string path = resolveConfigPath(configured_path);
+  const YAML::Node root = YAML::LoadFile(path);
+  const YAML::Node entries = root["primitives"];
+  if (!entries || !entries.IsSequence())
+  {
+    throw std::runtime_error(
+            "Collision primitive YAML must contain a 'primitives' sequence: " + path);
+  }
+
+  std::vector<wbdopt_ik::CollisionPrimitive> primitives;
+  primitives.reserve(entries.size());
+  for (std::size_t index = 0; index < entries.size(); ++index)
+  {
+    const YAML::Node entry = entries[index];
+    if (!entry.IsMap() || !entry["link"] || !entry["type"])
+    {
+      throw std::runtime_error(
+              "Each primitive requires link and type fields at index " +
+              std::to_string(index));
+    }
+
+    wbdopt_ik::CollisionPrimitive primitive;
+    primitive.name = entry["name"] ? entry["name"].as<std::string>() : "";
+    primitive.link_name = entry["link"].as<std::string>();
+    primitive.type = primitiveTypeFromString(entry["type"].as<std::string>());
+    primitive.dimensions = primitiveDimensions(entry, primitive.type);
+    const Eigen::Vector3d xyz = readVector3(entry, "xyz", Eigen::Vector3d::Zero());
+    const Eigen::Vector3d rpy = readVector3(entry, "rpy", Eigen::Vector3d::Zero());
+
+    // Match URDF roll-pitch-yaw convention: Rz(yaw) * Ry(pitch) * Rx(roll).
+    primitive.link_from_primitive = Eigen::Isometry3d::Identity();
+    primitive.link_from_primitive.linear() =
+      (Eigen::AngleAxisd(rpy.z(), Eigen::Vector3d::UnitZ()) *
+      Eigen::AngleAxisd(rpy.y(), Eigen::Vector3d::UnitY()) *
+      Eigen::AngleAxisd(rpy.x(), Eigen::Vector3d::UnitX())).toRotationMatrix();
+    primitive.link_from_primitive.translation() = xyz;
+    primitives.push_back(std::move(primitive));
+  }
+  return primitives;
+}
 
 Eigen::Isometry3d toEigen(const geometry_msgs::msg::Pose & pose)
 {
@@ -179,9 +314,19 @@ bool WbdoptIkKinematicsPlugin::initialize(
     solver_options_.collision_activation_distance = parameters.collision_activation_distance;
     solver_options_.max_joint_step = parameters.max_joint_step;
     solver_options_.max_iterations = parameters.max_iterations;
+    solver_options_.random_restarts = parameters.random_restarts;
     solver_options_.nominal_joint_positions = orderedNominalPositions(
       joint_names_, parameters.nominal_joint_names, parameters.nominal_joint_positions);
     solver_options_.max_time = getDefaultTimeout();
+    const std::vector<wbdopt_ik::CollisionPrimitive> collision_primitives =
+      loadCollisionPrimitives(parameters.collision_primitives_file);
+    collision_primitives_ = collision_primitives.size();
+    if (collision_primitives.empty())
+    {
+      RCLCPP_WARN(
+        LOGGER,
+        "WbdoptIk collision primitive whitelist is empty; IK collision checking is disabled");
+    }
 
     std::vector<wbdopt_ik::WbdoptIk::DisabledCollisionPair> disabled_pairs;
     if (robot_model.getSRDF())
@@ -194,7 +339,7 @@ bool WbdoptIkKinematicsPlugin::initialize(
     disabled_collision_pairs_ = disabled_pairs.size();
     solver_ = std::make_unique<wbdopt_ik::WbdoptIk>(
       exportUrdf(robot_model), effective_tip_frames, joint_names_, disabled_pairs, solver_options_,
-      amentPackagePaths());
+      amentPackagePaths(), collision_primitives);
 
     std::vector<double> lower;
     std::vector<double> upper;
@@ -231,9 +376,9 @@ bool WbdoptIkKinematicsPlugin::initialize(
   RCLCPP_INFO(
     LOGGER,
     "Initialized WbdoptIk for group '%s' with %zu joints, %zu tips, "
-    "%zu disabled collision pairs",
+    "%zu collision primitives, %zu disabled collision pairs",
     group_name.c_str(), joint_names_.size(), tip_frames_.size(),
-    disabled_collision_pairs_);
+    collision_primitives_, disabled_collision_pairs_);
   for (std::size_t i = 0; i < tip_frames_.size(); ++i)
   {
     RCLCPP_INFO(LOGGER, "  IK tip[%zu]: %s", i, tip_frames_[i].c_str());

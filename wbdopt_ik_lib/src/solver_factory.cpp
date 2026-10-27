@@ -30,22 +30,24 @@ std::unique_ptr<SolverBase> makeSolver(
   const std::string & urdf, const std::string & srdf,
   const std::vector<std::string> & end_effector_frames,
   const std::vector<std::string> & active_joint_names, const SolverOptions & options,
-  ModelInput input, const std::vector<std::string> & package_paths)
+  ModelInput input, const std::vector<std::string> & package_paths,
+  const std::vector<CollisionPrimitive> & collision_primitives)
 {
   return makeSelectedSolver(
     options.solver, urdf, srdf, end_effector_frames, active_joint_names, options, input,
-    package_paths);
+    package_paths, collision_primitives);
 }
 
 std::unique_ptr<SolverBase> makeSolver(
   const std::string & urdf_xml, const std::vector<std::string> & end_effector_frames,
   const std::vector<std::string> & active_joint_names,
   const std::vector<WbdoptIk::DisabledCollisionPair> & disabled_collision_pairs,
-  const SolverOptions & options, const std::vector<std::string> & package_paths)
+  const SolverOptions & options, const std::vector<std::string> & package_paths,
+  const std::vector<CollisionPrimitive> & collision_primitives)
 {
   return makeSelectedSolver(
     options.solver, urdf_xml, end_effector_frames, active_joint_names,
-    disabled_collision_pairs, options, package_paths);
+    disabled_collision_pairs, options, package_paths, collision_primitives);
 }
 
 }  // namespace wbdopt_ik

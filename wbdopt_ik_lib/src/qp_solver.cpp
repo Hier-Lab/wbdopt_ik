@@ -216,6 +216,11 @@ int QpSolver::solveInternal(
         break;
       }
     }
+    // Interactive IK can stop after the seed-local attempt for low latency and continuity.
+    if (!options_.random_restarts)
+    {
+      break;
+    }
   } while (std::chrono::steady_clock::now() < deadline);
 
 #ifdef WBDOPT_IK_DEBUG

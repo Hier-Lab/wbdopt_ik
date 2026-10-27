@@ -79,6 +79,36 @@ const char kCylinderCollisionUrdf[] = R"(
   </link>
 </robot>)";
 
+wbdopt_ik::CollisionPrimitive primitive(
+  const std::string & name, const std::string & link,
+  wbdopt_ik::CollisionPrimitiveType type, const Eigen::Vector3d & dimensions,
+  const Eigen::Vector3d & xyz = Eigen::Vector3d::Zero())
+{
+  wbdopt_ik::CollisionPrimitive result;
+  result.name = name;
+  result.link_name = link;
+  result.type = type;
+  result.dimensions = dimensions;
+  result.link_from_primitive.translation() = xyz;
+  return result;
+}
+
+wbdopt_ik::CollisionPrimitive capsule(
+  const std::string & name, const std::string & link, double radius, double length,
+  const Eigen::Vector3d & xyz = Eigen::Vector3d::Zero())
+{
+  return primitive(
+    name, link, wbdopt_ik::CollisionPrimitiveType::CAPSULE,
+    Eigen::Vector3d(radius, length, 0.0), xyz);
+}
+
+std::vector<wbdopt_ik::CollisionPrimitive> collisionRowPrimitives()
+{
+  return {
+    capsule("a_capsule", "a", 0.1, 0.0),
+    capsule("b_capsule", "b", 0.1, 0.0)};
+}
+
 TEST(WbdoptIk, SolvesSinglePrismaticJoint)
 {
   wbdopt_ik::SolverOptions options;
@@ -143,7 +173,8 @@ TEST(WbdoptIk, NloptHandlesInitiallyInactiveCollisionConstraint)
   wbdopt_ik::WbdoptIk solver(
     kCollisionUrdf, std::vector<std::string>{"a"},
     std::vector<std::string>{"slide_a", "slide_b"},
-    std::vector<wbdopt_ik::WbdoptIk::DisabledCollisionPair>{}, options);
+    std::vector<wbdopt_ik::WbdoptIk::DisabledCollisionPair>{}, options, {},
+    collisionRowPrimitives());
 
   // The pair starts outside the QP activation range, but NLopt must still
   // provide one initialized value and gradient row for its fixed constraint.
@@ -270,7 +301,8 @@ TEST(WbdoptIk, FormsCollisionDistanceConstraint)
   wbdopt_ik::WbdoptIk solver(
     kCollisionUrdf, std::vector<std::string>{"a"},
     std::vector<std::string>{"slide_a", "slide_b"},
-    std::vector<wbdopt_ik::WbdoptIk::DisabledCollisionPair>{}, options);
+    std::vector<wbdopt_ik::WbdoptIk::DisabledCollisionPair>{}, options, {},
+    collisionRowPrimitives());
 
   const auto constraints = solver.formConstraints(Eigen::VectorXd::Zero(2));
   ASSERT_EQ(constraints.update_lower.size(), 2);
@@ -303,7 +335,7 @@ TEST(WbdoptIk, SeparatesUpdateBoundsAtJointLimit)
   EXPECT_EQ(constraints.collision_matrix.rows(), 0);
 }
 
-TEST(WbdoptIk, ReplacesCylinderWithExtentPreservingCapsule)
+TEST(WbdoptIk, UsesConfiguredCapsulesInsteadOfUrdfCollisionShapes)
 {
   wbdopt_ik::SolverOptions options;
   options.safety_distance = 0.0;
@@ -311,13 +343,78 @@ TEST(WbdoptIk, ReplacesCylinderWithExtentPreservingCapsule)
   wbdopt_ik::WbdoptIk solver(
     kCylinderCollisionUrdf, std::vector<std::string>{"probe"},
     std::vector<std::string>{"slide"},
-    std::vector<wbdopt_ik::WbdoptIk::DisabledCollisionPair>{}, options);
+    std::vector<wbdopt_ik::WbdoptIk::DisabledCollisionPair>{}, options, {},
+    std::vector<wbdopt_ik::CollisionPrimitive>{
+      capsule("base_capsule", "base", 0.1, 0.8),
+      primitive(
+        "probe_sphere", "probe", wbdopt_ik::CollisionPrimitiveType::SPHERE,
+        Eigen::Vector3d(0.02, 0.0, 0.0))});
 
   const auto constraints = solver.formConstraints(Eigen::VectorXd::Zero(1));
   ASSERT_EQ(constraints.collision_lower.size(), 1);
   // Capsule centerline ends at z=0.4, so distance is hypot(0.2, 0.1)-0.1-0.02.
   const double expected_distance = std::hypot(0.2, 0.1) - 0.12;
   EXPECT_NEAR(constraints.collision_lower[0], -expected_distance, 1e-6);
+}
+
+TEST(WbdoptIk, IgnoresLinksMissingFromPrimitiveWhitelist)
+{
+  wbdopt_ik::SolverOptions options;
+  options.safety_distance = 0.0;
+  options.collision_activation_distance = 1.0;
+  wbdopt_ik::WbdoptIk solver(
+    kCylinderCollisionUrdf, std::vector<std::string>{"probe"},
+    std::vector<std::string>{"slide"},
+    std::vector<wbdopt_ik::WbdoptIk::DisabledCollisionPair>{}, options, {},
+    std::vector<wbdopt_ik::CollisionPrimitive>{
+      capsule("base_capsule", "base", 0.1, 0.8)});
+
+  const auto constraints = solver.formConstraints(Eigen::VectorXd::Zero(1));
+  EXPECT_EQ(constraints.collision_matrix.rows(), 0);
+}
+
+TEST(WbdoptIk, ConstructsEverySupportedPrimitiveType)
+{
+  const std::vector<wbdopt_ik::CollisionPrimitive> primitives{
+    primitive(
+      "sphere", "tool", wbdopt_ik::CollisionPrimitiveType::SPHERE,
+      Eigen::Vector3d(0.05, 0.0, 0.0)),
+    primitive(
+      "capsule", "tool", wbdopt_ik::CollisionPrimitiveType::CAPSULE,
+      Eigen::Vector3d(0.04, 0.10, 0.0)),
+    primitive(
+      "cylinder", "tool", wbdopt_ik::CollisionPrimitiveType::CYLINDER,
+      Eigen::Vector3d(0.04, 0.10, 0.0)),
+    primitive(
+      "box", "tool", wbdopt_ik::CollisionPrimitiveType::BOX,
+      Eigen::Vector3d(0.10, 0.08, 0.06)),
+    primitive(
+      "cone", "tool", wbdopt_ik::CollisionPrimitiveType::CONE,
+      Eigen::Vector3d(0.04, 0.10, 0.0)),
+    primitive(
+      "ellipsoid", "tool", wbdopt_ik::CollisionPrimitiveType::ELLIPSOID,
+      Eigen::Vector3d(0.05, 0.04, 0.03))};
+
+  EXPECT_NO_THROW(wbdopt_ik::WbdoptIk(
+    kPrismaticUrdf, std::vector<std::string>{"tool"},
+    std::vector<std::string>{"slide"},
+    std::vector<wbdopt_ik::WbdoptIk::DisabledCollisionPair>{},
+    wbdopt_ik::SolverOptions{}, {}, primitives));
+}
+
+TEST(WbdoptIk, AppliesDisabledPairsToCapsuleGeometry)
+{
+  wbdopt_ik::SolverOptions options;
+  options.safety_distance = 0.0;
+  options.collision_activation_distance = 1.0;
+  wbdopt_ik::WbdoptIk solver(
+    kCollisionUrdf, std::vector<std::string>{"a"},
+    std::vector<std::string>{"slide_a", "slide_b"},
+    std::vector<wbdopt_ik::WbdoptIk::DisabledCollisionPair>{{"a", "b"}}, options, {},
+    collisionRowPrimitives());
+
+  const auto constraints = solver.formConstraints(Eigen::VectorXd::Zero(2));
+  EXPECT_EQ(constraints.collision_matrix.rows(), 0);
 }
 
 TEST(WbdoptIk, AddsNormalizedJointCenteringCost)

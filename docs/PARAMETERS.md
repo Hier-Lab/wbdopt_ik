@@ -15,11 +15,13 @@ a violation is a startup error, not a silent clamp.
 | Parameter | Type | Default | Range | Backend | Purpose |
 |---|---|---|---|---|---|
 | `kinematics_solver` | string | — | — | both | Must be `wbdopt_ik_kinematics_plugin/WbdoptIkKinematicsPlugin` |
-| `kinematics_solver_timeout` | double | `0.05` | > 0 | both | Wall-clock budget per IK call; always fully consumed |
+| `kinematics_solver_timeout` | double | `0.05` | > 0 | both | Wall-clock budget per IK call; fully consumed only in multi-start mode |
 | `solver_type` | string | `qp` | `qp`, `nlopt` | both | Optimization backend |
 | `tip_frames` | string[] | `[]` | — | both | Ordered IK tips; **set explicitly on MoveIt Humble** |
+| `collision_primitives_file` | string | `""` | path or `package://` URI | both | Primitive whitelist for the independent IK collision model; empty disables it |
 | `epsilon` | double | `1e-5` | > 0 | both | Convergence tolerance, m and rad, combined across tips |
 | `max_iterations` | int | `100` | > 0 | both | SQP iterations (`qp`) or objective evaluations (`nlopt`) |
+| `random_restarts` | bool | `true` | — | both | Continue random multi-start search until timeout; disable for interactive IK |
 | `position_weight` | double | `1.0` | ≥ 0 | both | Translational task weight $w_p$ |
 | `orientation_weight` | double | `1.0` | ≥ 0 | both | Rotational task weight $w_R$; **`0` = position-only IK** |
 | `regularization` | double | `1e-4` | ≥ 0 | both | $\lambda$ on QP diagonal, or $\lambda^2$ toward seed in `nlopt` |
@@ -39,14 +41,14 @@ a violation is a startup error, not a silent clamp.
 
 | Parameter | Notes |
 |---|---|
-| `kinematics_solver_timeout` | Becomes `max_time`. Bounds the **whole restart loop**, not one attempt. **Both backends consume it fully on every call** — each restarts until the deadline to collect candidates for nominal-pose ranking, then returns the best. Raising it improves posture quality and the odds of solving a hard request; lowering it trades both for latency. An unreachable target costs the full budget before reporting failure. |
+| `kinematics_solver_timeout` | Becomes `max_time`. Bounds the whole solve. With `random_restarts: true`, both backends normally consume it fully while collecting candidates. With restarts disabled, a successful seed-local attempt returns promptly. |
 | `solver_type` | `qp` steps through per-iteration linearizations of the task and collision distances. `nlopt` optimizes the absolute configuration under the true nonlinear collision constraints, which is more faithful near contact. Both rank candidates identically, so switching does not change posture selection. |
+| `random_restarts` | Keep `true` for offline multi-start search and nominal-pose ranking. Set `false` for RViz interactive markers or servo-like repeated IK calls; only the supplied seed branch is attempted, improving latency and temporal continuity. |
 | `tip_frames` | **The order here is the order of desired poses** in multi-tip calls, and must match what MoveIt passes. On MoveIt Humble the stock loader otherwise passes only the group's last link, silently reducing a dual-arm group to single-arm IK. |
 
-> Returning the first solution found would be far faster (sub-millisecond), but
-> makes the output jump between IK branches on a redundant arm — nearly
-> identical requests produce visibly different postures. Collecting and ranking
-> is the deliberate trade.
+> Random restarts improve global search and nominal-pose ranking, but consume the
+> timeout. Seed-local mode is preferable when each request starts from the previous
+> solution, as it does for RViz interactive markers.
 
 ---
 
@@ -101,8 +103,44 @@ consistently misses position, lower `orientation_weight` to `0.1`.
 
 ## Collision avoidance
 
-Both distances are **signed** distances between SRDF-enabled pairs. Pairs
-disabled in the SRDF are removed at construction and never considered.
+The solver deliberately does **not** load collision meshes, cylinders, or other
+geometry from URDF. Its Pinocchio/Coal collision model is built exclusively
+from the shapes listed in `collision_primitives_file`. MoveIt and ROS continue
+using their normal URDF/SRDF collision model; changing this file does not change
+the PlanningScene geometry.
+
+| Parameter | Notes |
+|---|---|
+| `collision_primitives_file` | Absolute path, relative path, or `package://package/path` URI. An empty string creates no IK collision geometry. A link absent from the file is ignored. Multiple primitives may approximate one link. |
+
+The file schema is:
+
+```yaml
+primitives:
+  - name: left_upper_arm_0       # optional, but must be unique when set
+    link: left_fr3_link3         # required URDF link name
+    type: capsule
+    radius: 0.085                # metres, must be > 0
+    length: 0.240                # centreline length, must be >= 0
+    xyz: [0.0, 0.0, 0.12]       # optional pose in the link frame
+    rpy: [0.0, 0.0, 0.0]        # optional URDF RPY; capsule axis is local +Z
+```
+
+Supported types and required dimensions are:
+
+| `type` | Fields | Local orientation |
+|---|---|---|
+| `sphere` | `radius` | orientation has no effect |
+| `capsule` | `radius`, `length` | axis is +Z; `length` is the centerline length |
+| `cylinder` | `radius`, `length` | axis is +Z; `length` is total height |
+| `cone` | `radius`, `length` | axis is +Z; `length` is total height |
+| `box` | `size: [x, y, z]` | local XYZ axes |
+| `ellipsoid` | `radii: [rx, ry, rz]` | local XYZ axes |
+
+For capsules, total axial extent is `length + 2 * radius`. Primitive dimensions
+should conservatively enclose the real collision shape; otherwise IK can be
+primitive-safe while the ROS model is in collision. Pairs disabled in SRDF are
+removed from the primitive model after it is created.
 
 | Parameter | Notes |
 |---|---|
@@ -158,6 +196,7 @@ whole_body:
   kinematics_solver_timeout: 0.05
   solver_type: qp
   tip_frames: [left_fr3_hand_tcp, right_fr3_hand_tcp]
+  collision_primitives_file: package://wbdopt_ik_kinematics_plugin/config/dual_fr3_collision_primitives.yaml
 
   epsilon: 0.001                       # 1 mm / 1 mrad, combined across both tips
   max_iterations: 100
@@ -191,8 +230,10 @@ want each solve pulled toward its seed.
 | Always fails, returns the seed, uses the full timeout | Permanently-colliding link pairs not disabled in the SRDF — see `safety_distance` |
 | Only one arm solves in a dual-arm group | `tip_frames` not set explicitly (MoveIt Humble) |
 | Position tracks, orientation drifts | Raise `orientation_weight`, or check targets are in the URDF root frame |
-| Solves always take the full timeout | Expected: both backends restart until the deadline to rank candidates. Lower `kinematics_solver_timeout` to trade posture quality for latency |
+| Solves always take the full timeout | `random_restarts` is enabled. Disable it for seed-local interactive IK, or lower `kinematics_solver_timeout` to trade posture quality for latency |
 | Solutions jump between postures | Set `nominal_joint_positions`, and check the timeout is long enough to find more than one candidate |
 | Erratic large joint motions near full extension | Raise `regularization` (singularity damping) |
 | Passes through thin obstacles between iterations | Lower `max_joint_step`, raise `collision_activation_distance` |
 | Startup error on collision distances | `collision_activation_distance` < `safety_distance` |
+| No collision constraints appear | `collision_primitives_file` is empty, resolves to `primitives: []`, or the relevant link is not listed |
+| IK is collision-free but PlanningScene reports collision | A primitive does not conservatively enclose its real URDF collision shape, or the SRDF disables that pair |

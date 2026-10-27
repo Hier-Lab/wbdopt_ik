@@ -43,6 +43,7 @@ whole_body:
   kinematics_solver_timeout: 0.05
   solver_type: qp
   tip_frames: [left_fr3_hand_tcp, right_fr3_hand_tcp]
+  collision_primitives_file: package://wbdopt_ik_kinematics_plugin/config/dual_fr3_collision_primitives.yaml
   epsilon: 0.001
   position_weight: 1.0
   orientation_weight: 1.0
@@ -59,14 +60,18 @@ Three things to get right:
 - **Set `tip_frames` explicitly on MoveIt Humble.** Its plugin loader otherwise
   passes only the group's last link, silently reducing a dual-arm group to
   single-arm IK. The order given here is the order of desired poses.
-- **Disable permanently-colliding link pairs in the SRDF.** If any enabled pair
+- **Provide a conservative primitive whitelist.** Wbdopt IK does not load URDF
+  collision meshes. Only links in `collision_primitives_file` participate in its
+  Pinocchio collision checks; MoveIt/ROS collision geometry remains unchanged.
+- **Disable permanently-colliding capsule pairs in the SRDF.** If any enabled pair
   is always in contact, no configuration passes the convergence test and every
   call fails after using the full timeout.
 - **All active joints must be one-DoF**, revolute or prismatic. Continuous
   revolute joints are supported and handled as a single angle.
 
 Collision pairs disabled in the SRDF are removed before optimization. Desired
-poses are expressed in the URDF root frame.
+poses are expressed in the URDF root frame. The primitive file format and units
+are documented in [docs/PARAMETERS.md](docs/PARAMETERS.md#collision-avoidance).
 
 ## Choosing a backend
 
@@ -92,11 +97,21 @@ options.solver = wbdopt_ik::SolverTypes::NLOPT;   // or qpOASES
 options.max_time = 0.05;
 options.tolerance = 1e-4;
 
+wbdopt_ik::CollisionPrimitive left_upper_arm;
+left_upper_arm.name = "left_upper_arm";
+left_upper_arm.link_name = "left_fr3_link3";
+left_upper_arm.type = wbdopt_ik::CollisionPrimitiveType::CAPSULE;
+left_upper_arm.dimensions << 0.085, 0.240, 0.0;  // radius, centreline length
+left_upper_arm.link_from_primitive.translation() << 0.0, 0.0, 0.12;
+
 wbdopt_ik::WbdoptIk solver(
   urdf_path, srdf_path,
   {"left_fr3_hand_tcp", "right_fr3_hand_tcp"},    // tips
   active_joint_names,
-  options);
+  options,
+  wbdopt_ik::ModelInput::FILES,
+  {},
+  {left_upper_arm});
 
 Eigen::VectorXd solution;
 const int result = solver.CartToJoint(seed, desired_poses, solution);
