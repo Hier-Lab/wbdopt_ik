@@ -78,6 +78,10 @@ are documented in [docs/PARAMETERS.md](docs/PARAMETERS.md#collision-avoidance).
 Both backends collect every solution found before the deadline and return the
 one closest to `nominal_joint_positions`, which is what gives repeatable
 postures on redundant arms. Both therefore use the full timeout on every call.
+The same nominal array can also guide each local solve by setting
+`nominal_tracking_weight`; that cost is projected through the vertically
+stacked multi-tip Jacobian nullspace so it does not directly compete with the
+Cartesian IK task.
 
 They differ in how they get there: `qp` steps through per-iteration
 linearizations of the task and collision distances, while `nlopt` optimizes the

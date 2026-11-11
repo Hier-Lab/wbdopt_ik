@@ -46,6 +46,7 @@ struct SolverOptions
   double max_joint_step{0.20};
   int max_iterations{100};
   bool random_restarts{true};
+  double nominal_tracking_weight{0.0};
   std::vector<double> nominal_joint_positions;
 };
 

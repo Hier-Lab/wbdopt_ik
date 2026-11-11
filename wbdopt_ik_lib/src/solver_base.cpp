@@ -12,6 +12,8 @@
 #include <pinocchio/parsers/urdf.hpp>
 #include <pinocchio/spatial/explog.hpp>
 
+#include <Eigen/SVD>
+
 #include <algorithm>
 #include <cmath>
 #include <limits>
@@ -334,6 +336,7 @@ void SolverBase::validateOptions(const SolverOptions & options) const
   if (options.max_time <= 0.0 || options.tolerance <= 0.0 ||
     options.regularization < 0.0 || options.position_weight < 0.0 ||
     options.orientation_weight < 0.0 || options.joint_centering_weight < 0.0 ||
+    options.nominal_tracking_weight < 0.0 ||
     options.safety_distance < 0.0 ||
     options.collision_activation_distance < options.safety_distance ||
     options.max_joint_step <= 0.0 || options.max_iterations <= 0)
@@ -350,6 +353,11 @@ void SolverBase::validateOptions(const SolverOptions & options) const
       throw std::invalid_argument(
               "nominal_joint_positions must contain one finite value per active joint");
     }
+  }
+  if (options.nominal_tracking_weight > 0.0 && options.nominal_joint_positions.empty())
+  {
+    throw std::invalid_argument(
+            "nominal_joint_positions are required when nominal_tracking_weight is positive");
   }
   if (options.joint_centering_weight > 0.0)
   {
@@ -447,6 +455,8 @@ CostData SolverBase::cost(
   //   Eigen::MatrixXd::Identity(n, n);
   result.hessian = Eigen::MatrixXd::Zero(n, n);
   result.gradient = Eigen::VectorXd::Zero(n);
+  Eigen::MatrixXd task_jacobian = Eigen::MatrixXd::Zero(
+    static_cast<Eigen::Index>(6U * end_effector_ids_.size()), n);
 
   // Reuse FK/Jacobians if another objective or constraint already evaluated this q.
   updateModel(active_q);
@@ -464,6 +474,10 @@ CostData SolverBase::cost(
 
     const auto linear = active_jacobian.topRows(3);
     const auto angular = active_jacobian.bottomRows(3);
+    const Eigen::Index row = static_cast<Eigen::Index>(6U * i);
+    task_jacobian.middleRows(row, 3) = std::sqrt(options_.position_weight) * linear;
+    task_jacobian.middleRows(row + 3, 3) =
+      std::sqrt(options_.orientation_weight) * angular;
     result.hessian.noalias() += options_.position_weight * linear.transpose() * linear;
     result.hessian.noalias() +=
       options_.orientation_weight * angular.transpose() * angular;
@@ -473,6 +487,46 @@ CostData SolverBase::cost(
       options_.orientation_weight * angular.transpose() * orientation_error;
     result.squared_error += options_.position_weight * position_error.squaredNorm() +
       options_.orientation_weight * orientation_error.squaredNorm();
+  }
+
+  // Track the configured posture only in directions invisible to the stacked IK task.
+  if (options_.nominal_tracking_weight > 0.0)
+  {
+    Eigen::JacobiSVD<Eigen::MatrixXd> svd(task_jacobian, Eigen::ComputeThinV);
+    const Eigen::VectorXd singular_values = svd.singularValues();
+    const double largest = singular_values.size() > 0 ? singular_values[0] : 0.0;
+    const double threshold = std::numeric_limits<double>::epsilon() *
+      static_cast<double>(std::max(task_jacobian.rows(), task_jacobian.cols())) * largest;
+    Eigen::Index rank = 0;
+    while (rank < singular_values.size() && singular_values[rank] > threshold)
+    {
+      ++rank;
+    }
+
+    Eigen::MatrixXd nullspace = Eigen::MatrixXd::Identity(n, n);
+    if (rank > 0)
+    {
+      const Eigen::MatrixXd range_basis = svd.matrixV().leftCols(rank);
+      nullspace.noalias() -= range_basis * range_basis.transpose();
+    }
+    nullspace = 0.5 * (nullspace + nullspace.transpose());
+
+    Eigen::VectorXd nominal_error = active_q - Eigen::Map<const Eigen::VectorXd>(
+      options_.nominal_joint_positions.data(), n);
+    for (Eigen::Index i = 0; i < n; ++i)
+    {
+      if (q_dimensions_[static_cast<std::size_t>(i)] == 2)
+      {
+        nominal_error[i] = std::remainder(nominal_error[i], 2.0 * M_PI);
+      }
+    }
+    const Eigen::VectorXd projected_error = nullspace * nominal_error;
+    const Eigen::MatrixXd projected_metric = nullspace.transpose() * nullspace;
+    result.hessian.noalias() += options_.nominal_tracking_weight * projected_metric;
+    result.gradient.noalias() +=
+      options_.nominal_tracking_weight * nullspace.transpose() * projected_error;
+    result.squared_error +=
+      options_.nominal_tracking_weight * projected_error.squaredNorm();
   }
 
   // Optionally bias one joint toward the midpoint of its configured bounds.

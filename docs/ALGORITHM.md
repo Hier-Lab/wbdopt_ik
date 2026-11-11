@@ -209,6 +209,37 @@ Solved with qpOASES in MPC mode. An inner iteration stops when the pose
 converges, when $\lVert \Delta q \rVert < 0.1\,\epsilon$, when the QP fails, or
 at the deadline.
 
+### Nominal-posture nullspace cost
+
+The same `nominal_joint_positions` used for restart ranking can also guide each
+local solve. All enabled position and orientation Jacobian rows for every tip
+are vertically stacked into $J_t$. With its SVD pseudoinverse, the orthogonal
+projector onto the instantaneous task nullspace is
+
+$$
+N = I - J_t^+J_t.
+$$
+
+For weight $w_n=$ `nominal_tracking_weight`, the local secondary objective is
+
+$$
+\frac{w_n}{2}\left\|N(q_k + \Delta q - q_{nom})\right\|^2.
+$$
+
+It contributes
+
+$$
+H_n = w_n N^\mathsf{T}N,
+\qquad
+g_n = w_n N^\mathsf{T}N(q_k-q_{nom}).
+$$
+
+Therefore $J_t g_n=0$ up to the SVD rank tolerance: the nominal preference does
+not directly alter the first-order Cartesian task. The projector is recomputed
+at every configuration. Collision inequalities and joint bounds still have
+priority as hard constraints, so they may prevent motion toward the nominal
+posture. Continuous-joint errors use their shortest angular difference.
+
 ### Restarts and nominal-pose ranking
 
 The QP backend **collects every converged solution** until the deadline, then

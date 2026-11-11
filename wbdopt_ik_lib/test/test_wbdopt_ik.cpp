@@ -240,6 +240,43 @@ TEST(WbdoptIk, RejectsWrongNominalPoseSize)
     std::invalid_argument);
 }
 
+TEST(WbdoptIk, ProjectsNominalTrackingIntoTaskNullspace)
+{
+  wbdopt_ik::SolverOptions options;
+  options.position_weight = 1.0;
+  options.orientation_weight = 0.0;
+  options.nominal_tracking_weight = 2.0;
+  options.nominal_joint_positions = {0.0, 1.0};
+  wbdopt_ik::WbdoptIk solver(
+    kRedundantPrismaticUrdf, std::vector<std::string>{"tool"},
+    std::vector<std::string>{"slide_1", "slide_2"},
+    std::vector<wbdopt_ik::WbdoptIk::DisabledCollisionPair>{}, options);
+
+  Eigen::Vector2d q(0.5, 0.5);
+  Eigen::Isometry3d target = Eigen::Isometry3d::Identity();
+  target.translation().x() = 1.0;
+  const auto cost = solver.formCost(q, {target});
+
+  // J=[1,1], so the nominal gradient [1,-1] is exactly task-nullspace motion.
+  EXPECT_NEAR(cost.gradient[0], 1.0, 1e-10);
+  EXPECT_NEAR(cost.gradient[1], -1.0, 1e-10);
+  EXPECT_NEAR(cost.gradient.sum(), 0.0, 1e-10);
+  EXPECT_TRUE(cost.hessian.isApprox(2.0 * Eigen::Matrix2d::Identity(), 1e-10));
+  EXPECT_NEAR(cost.squared_error, 1.0, 1e-10);
+}
+
+TEST(WbdoptIk, RequiresNominalPoseForNullspaceTracking)
+{
+  wbdopt_ik::SolverOptions options;
+  options.nominal_tracking_weight = 1.0;
+  EXPECT_THROW(
+    wbdopt_ik::WbdoptIk(
+      kPrismaticUrdf, std::vector<std::string>{"tool"},
+      std::vector<std::string>{"slide"},
+      std::vector<wbdopt_ik::WbdoptIk::DisabledCollisionPair>{}, options),
+    std::invalid_argument);
+}
+
 TEST(WbdoptIk, ParsesSolverStateNames)
 {
   EXPECT_EQ(wbdopt_ik::solverTypeFromString("qp"), wbdopt_ik::SolverTypes::qpOASES);

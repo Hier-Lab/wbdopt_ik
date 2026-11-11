@@ -80,4 +80,10 @@ wbdopt_ik_kinematics:
   nominal_joint_positions:
     type: double_array
     default_value: []
-    description: Nominal joint pose used to rank valid QP solutions from random restarts.
+    description: Nominal joint pose used for restart ranking and nullspace posture tracking.
+  nominal_tracking_weight:
+    type: double
+    default_value: 0.0
+    description: Weight for tracking nominal_joint_positions in the stacked IK Jacobian nullspace.
+    validation:
+      gt_eq<>: [0.0]

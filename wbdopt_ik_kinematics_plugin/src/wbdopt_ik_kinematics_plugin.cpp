@@ -317,6 +317,7 @@ bool WbdoptIkKinematicsPlugin::initialize(
     solver_options_.random_restarts = parameters.random_restarts;
     solver_options_.nominal_joint_positions = orderedNominalPositions(
       joint_names_, parameters.nominal_joint_names, parameters.nominal_joint_positions);
+    solver_options_.nominal_tracking_weight = parameters.nominal_tracking_weight;
     solver_options_.max_time = getDefaultTimeout();
     const std::vector<wbdopt_ik::CollisionPrimitive> collision_primitives =
       loadCollisionPrimitives(parameters.collision_primitives_file);

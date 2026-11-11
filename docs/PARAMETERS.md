@@ -31,7 +31,8 @@ a violation is a startup error, not a silent clamp.
 | `joint_centering_name` | string | `""` | active joint | both | Joint biased toward its midpoint |
 | `joint_centering_weight` | double | `0.0` | ≥ 0 | both | Weight $w_c$; keep well below task weights |
 | `nominal_joint_names` | string[] | `[]` | — | both | Labels for `nominal_joint_positions` |
-| `nominal_joint_positions` | double[] | `[]` | — | both | Rest posture used to rank restart candidates |
+| `nominal_joint_positions` | double[] | `[]` | — | both | Shared rest posture for restart ranking and nullspace tracking |
+| `nominal_tracking_weight` | double | `0.0` | ≥ 0 | both | Weight on nominal tracking projected into the stacked task nullspace |
 
 `kinematics_solver_search_resolution` is read by MoveIt but unused here.
 
@@ -171,12 +172,13 @@ removed from the primitive model after it is created.
 
 ---
 
-## Nominal pose ranking
+## Nominal pose ranking and nullspace tracking
 
 | Parameter | Notes |
 |---|---|
 | `nominal_joint_names` | Labels for `nominal_joint_positions`; the two arrays must be the same length. Names are matched to the group's active joints at initialization, so **YAML order need not match model order** — this is what makes it safe to paste values from an `initial_positions.yaml`. |
-| `nominal_joint_positions` | The reference posture. Both backends collect every converged solution until the deadline and return the one minimizing squared distance to it, with continuous joints compared by shortest angular distance (§5). |
+| `nominal_joint_positions` | One shared reference posture. It ranks restart candidates and, when `nominal_tracking_weight > 0`, supplies the nullspace-tracking target. Continuous-joint errors use the shortest angular distance. |
+| `nominal_tracking_weight` | Adds $w_n\|N(q-q_{nom})\|^2$ using the nullspace projector of the vertically stacked, weighted Jacobians of every IK tip. Zero disables the cost. Start near `0.001`–`0.01`; unlike `joint_centering_weight`, it cannot directly compete with the linearized Cartesian task because its gradient lies in the task nullspace. |
 
 This is the mechanism that makes a redundant arm produce repeatable, sensible
 configurations instead of an arbitrary valid one. If unset, the request seed is
@@ -215,6 +217,7 @@ whole_body:
 
   nominal_joint_names: [base_slider_joint, left_fr3_joint1, ...]
   nominal_joint_positions: [0.0, 0.0, -0.785, ...]
+  nominal_tracking_weight: 0.01
 ```
 
 To switch to the NLopt backend, set `solver_type: nlopt`. The nominal arrays
